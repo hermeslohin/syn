@@ -223,13 +223,13 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `cfg.volume_spike` | Settings > Network policy > volume_spike: min_mb, times_normal, mad_factor, min_days, severity (volume-spike finding) | `/api/config/cfg` | VOL-01, VOL-02, VOL-05 | 5 | 0 |
 | `cfg.tune` | Settings > Auto-tune thresholds (recommend, accept) | `/api/config/tune-apply` | SET-51, SET-52, SET-67, CLS-09, VOL-05 | 11 | 3 |
 | `cfg.discover` | Settings > Network policy > Discover from UniFi | `/api/config/discover` | SET-53, SET-54, SET-55 | 8 | 0 |
-| `review.lookback` | More > Settings > Site > event_window_minutes: event window (correlation window, review coverage, settle wait) | `/api/config/cfg` | EVW-01, EVW-02, EVW-03, EVW-04, SET-64 | 14 | 6 |
+| `review.lookback` | More > Settings > Site > event_window_minutes: event window (correlation window, review coverage, settle wait) | `/api/config/cfg` | EVW-01, EVW-02, EVW-03, EVW-04, SET-64 | 17 | 6 |
 | `push.gate` | More > Settings > Site > push_wait_for_ai / push_hold_max_minutes: wait for the AI verdict before phone alerts, longest hold | `/api/config/cfg` | PSH-01, PSH-05, PSH-06 | 6 | 0 |
 | `users.trust` | More > Settings > Site > min_indicators / few_indicators_max_confidence / user_alert_min_confidence / stop_device_min_confidence / baseline_alerts_to_users: who is told what | `/api/config/cfg` | ALR-30, ALR-31, ALR-32 | 5 | 0 |
-| `review.schedule` | AI pipeline configuration > Review job schedule | `/api/config/review-schedule` | CFG-01, SET-64 | 18 | 7 |
-| `review.job` | AI pipeline configuration > Review job: on/off, event modes | `/api/llm/review` | CFG-01, OPS-06, SET-64 | 29 | 7 |
-| `research.limits` | AI pipeline configuration > Research job limits (model, cost caps, web) | `/api/llm/research` | CFG-01, SET-64 | 18 | 7 |
-| `autoclose` | Open events > Auto-close settings and guard rails | `/api/config/triage`, `/api/config/triage/reopen` | STO-08, STO-12, SET-64 | 14 | 6 |
+| `review.schedule` | AI pipeline configuration > Review job schedule | `/api/config/review-schedule` | CFG-01, SET-64 | 21 | 7 |
+| `review.job` | AI pipeline configuration > Review job: on/off, event modes | `/api/llm/review` | CFG-01, OPS-06, SET-64 | 32 | 7 |
+| `research.limits` | AI pipeline configuration > Research job limits (model, cost caps, web) | `/api/llm/research` | CFG-01, SET-64 | 21 | 7 |
+| `autoclose` | Open events > Auto-close settings and guard rails | `/api/config/triage`, `/api/config/triage/reopen` | STO-08, STO-12, SET-64 | 18 | 6 |
 | `notes.consolidate` | AI pipeline configuration > Nightly note consolidation | `/api/llm/notes-consolidate` | STO-09, SET-66 | 6 | 8 |
 | `llm.models` | AI pipeline configuration > Models (event reviewer, research, chat model) | `/api/llm/config` | SET-22, SET-23, SET-65 | 6 | 4 |
 | `llm.providers` | AI pipeline configuration > AI providers (added APIs, local server) | `/api/llm/providers` | SET-32, SET-33, SET-34, SET-65 | 8 | 4 |
@@ -240,7 +240,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `llm.esqueries` | AI pipeline configuration > Event reviewer look-ups: Elasticsearch | `/api/llm/esqueries` | SET-25, SET-66 | 3 | 8 |
 | `llm.websearch` | AI pipeline configuration > Event reviewer look-ups: web search | `/api/llm/websearch` | SET-25, SET-66 | 3 | 8 |
 | `llm.lookupplan` | AI pipeline configuration > Event reviewer look-ups first | `/api/llm/lookupplan` | SET-24, SET-66 | 1 | 8 |
-| `llm.webcache` | AI pipeline configuration > netmon web cache (on/off, days kept, clear) | `/api/llm/webcache` | WEB-08, SET-66 | 8 | 8 |
+| `llm.webcache` | AI pipeline configuration > netmon web cache (on/off, days kept, clear) | `/api/llm/webcache` | WEB-08, SET-66 | 9 | 8 |
 | `llm.chat_es` | Ask AI: may the chat search Elasticsearch | `/api/llm/chat-es` | SET-23, SET-66, SET-69 | 2 | 15 |
 | `push.prefs` | Account > Notifications (which devices alert me) | `/api/push/prefs` | STO-07, SET-68 | 35 | 5 |
 
@@ -250,12 +250,13 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 |---|---|---|
 | `tests/unit/test_advice.py` | 10 | Unit tests for dashboard/app/advice.py: the analyst's advice for the device owner on each alert (a second verdict in (ALR-26, ALR-27, ALR-28, ALR-29, OE-21) |
 | `tests/unit/test_aireview_paging.py` | 2 | Unit tests for AI pipeline monitoring: the core request carries no verdict rows (no Decisions list on the page). (AIR-01) |
+| `tests/unit/test_aiusage.py` | 2 | Unit tests for dashboard/app/aiusage.py: hourly token totals behind AI pipeline monitoring > Tokens chart. (LLM-04) |
 | `tests/unit/test_alerts_page.py` | 34 | Unit tests for the Alerts page (#/alerts): the alert store's mute / suppress / retention rules, the 15-minute watcher (ALR-02, ALR-05, ALR-06, ALR-07, ALR-08, ALR-09, ALR-10, ALR-11, ALR-12, ALR-13, ALR-14, ALR-15, ALR-16, ALR-17, ALR-18, ALR-19, ALR-20, ALR-21, ALR-22, ALR-23, ALR-24, ALR-25, CFG-05) |
 | `tests/unit/test_alerts_view.py` | 9 | Unit tests for the Alerts page helpers in dashboard/app/eventstore.py: verdicts, web research, artifact notes, detections. (FEAT-03, FEAT-04, FEAT-05, FEAT-06) |
 | `tests/unit/test_analyze.py` | 19 | Unit tests for the pure helpers of analyze.py (device keys, baseline records, deviation statistics). (ANA-01, ANA-30, RISK-03) |
 | `tests/unit/test_audit.py` | 46 | Unit tests for dashboard/app/audit.py: secret redaction, entry building, spooling while Elasticsearch is down. (AUD-01, AUD-02, AUD-03, AUD-05) |
 | `tests/unit/test_auth.py` | 44 | Unit tests for dashboard/app/auth.py: password hashing, user management, roles, sessions and sign-in throttling. (AC-02, AC-05, AC-07, AC-08, AUTH-01, AUTH-02, AUTH-03, AUTH-04, AUTH-05, AUTH-06, AUTH-07, AUTH-08, DASH-03, SEC-06) |
-| `tests/unit/test_autoclose.py` | 14 | Unit tests for dashboard/app/autoclose.py: AI-verdict auto-close of open events (Open events page, any type/age). (OE-20, STO-05, STO-08, STO-12) |
+| `tests/unit/test_autoclose.py` | 15 | Unit tests for dashboard/app/autoclose.py: AI-verdict auto-close of open events (Open events page, any type/age). (OE-20, STO-05, STO-08, STO-12) |
 | `tests/unit/test_backclose.py` | 1 | Back button / back gesture closes the open modal (static/backclose.js) - run under node with a tiny fake DOM + history. (UI-93) |
 | `tests/unit/test_cardinfo_keys.py` | 7 | Static checks: every top-level box title on the AI pipeline and Alerts pages has an info (ⓘ) text in cardinfo.js. (FEAT-10, FEAT-11) |
 | `tests/unit/test_cert_dns_notes.py` | 5 | Unit tests for DNS, TLS and IPs notes: TLS certificates are artifacts with notes, domain notes reach events about their (STO-13) |
@@ -263,14 +264,17 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_classdefs.py` | 10 | Unit tests for device class definitions and per-class alarm switches (classdefs.py, Settings > Network policy > (CLS-01, CLS-02, CLS-03, CLS-04, CLS-05, UI-92) |
 | `tests/unit/test_clef_stage.py` | 9 | Decision-model stage of the correlation review (clef.py + corr_llm.clef_pass / event_pass), against a fake (LLM-03) |
 | `tests/unit/test_config.py` | 35 | Unit tests for the config helpers: site_cfg.py, window.py, lookback.py, review_cfg.py, research_cfg.py. (AC-06, CFG-01, CFG-03, CFG-05, OPS-03, OPS-06, STO-01, STO-02) |
-| `tests/unit/test_corr_web.py` | 11 | Unit tests for the event reviewer's web look-ups (corr_llm.py): private-detail filter, cited-source checking, logging + overview. (WEB-07, WEB-08) |
+| `tests/unit/test_config_guard_js.py` | 3 | config.js (Settings > Configuration > Auto-close) under node with a stubbed page: the guard rails save on every change (SET-64) |
+| `tests/unit/test_corr_web.py` | 12 | Unit tests for the event reviewer's web look-ups (corr_llm.py): private-detail filter, cited-source checking, logging + overview. (WEB-07, WEB-08) |
 | `tests/unit/test_correlate.py` | 42 | Unit tests for dashboard/app/correlate.py: artifact extraction, stable ids, topics and the pair scoring in build(). (COR-01, COR-02, COR-03, COR-04, MIT-01, OCTI-10) |
 | `tests/unit/test_event_fires.py` | 8 | Unit tests for eventstore firings: only events seen in Elasticsearch fire, overlapping report windows merge into one firing. (FEAT-01, FEAT-02) |
-| `tests/unit/test_event_window.py` | 19 | Event window (lookback.py): one setting for the correlation window, the review job's coverage and the event (EVW-01, EVW-02, EVW-03, EVW-04, EVW-05, EVW-06, EVW-07, OPS-03) |
+| `tests/unit/test_event_window.py` | 20 | Event window (lookback.py): one setting for the correlation window, the review job's coverage and the event (EVW-01, EVW-02, EVW-03, EVW-04, EVW-05, EVW-06, EVW-07, EVW-11, OPS-03) |
 | `tests/unit/test_evtime.py` | 14 | Event times from Elasticsearch (evtime.py): which records an event maps to, the stored first/last record times on (EVT-01, EVT-02, EVT-03) |
 | `tests/unit/test_feeds_cfg.py` | 12 | Configurable threat-intel feeds (extras.feed_list / apply_feed_config, integrations section 'feeds') and the (FEED-01, FEED-02, FEED-03, OCTI-02, OCTI-08, OCTI-09) |
+| `tests/unit/test_gpustat.py` | 2 | Unit tests for gpustat.py: GPU busy % per local model (AI pipeline monitoring > GPU use). (LLM-05) |
 | `tests/unit/test_host_baseline_asof.py` | 2 | hosts.as_of / first-seen minutes: a time range collected after the review job still reports the first-seen host (POS-21) |
 | `tests/unit/test_ids_verdicts.py` | 6 | Unit tests for the IDS events Verdict column: GET /api/verdicts (server.event_verdicts) and the tables that show it. (POS-22, POS-23) |
+| `tests/unit/test_ioc_pivot.py` | 7 | Unit tests for research -> indicator hunt: iocs.extract, es_context.hunt, corr_llm._ioc_pivot / researched artifacts. (WEB-09) (WEB-09) |
 | `tests/unit/test_issues.py` | 28 | Unit tests for dashboard/app/issues.py (per-snapshot Fix-list checks and cross-snapshot tracking). (CFG-05, ISS-01, ISS-02, OPS-05, OPS-06, RISK-03) |
 | `tests/unit/test_issues_k8s_cis.py` | 3 |  (KUBE-06, KUBE-10) |
 | `tests/unit/test_issues_race.py` | 2 | Regression: the Fix list (fixlist.sync / issues._eval) runs in request threads and background jobs at once; the (OPS-05) |
@@ -312,7 +316,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_settings_ui.py` | 5 | Unit tests for small Settings / theme UI pieces: the learned host name in the device classes editor (settings.js (SET-71, UI-90, UI-91) |
 | `tests/unit/test_signature_notes.py` | 7 | Security > Event notes: kb.signature_notes groups people's event notes by IDS signature, kb.update_event_note edits them. (STO-17) |
 | `tests/unit/test_static_assets.py` | 15 | Static checks of dashboard/app/static: referenced assets exist and app.js fnv() matches correlate.fnv (no node needed). (CFG-06, COR-02, DASH-01, DASH-06) |
-| `tests/unit/test_store.py` | 66 | Unit tests for store.py: docs, cfg, acks, mutes, suppress rules, alerts, push, findings, registry, history, ops. (AC-06, DASH-05, OPS-04, RISK-04, SEC-06, STO-01, STO-02, STO-03, STO-04, STO-05, STO-06, STO-07) |
+| `tests/unit/test_store.py` | 67 | Unit tests for store.py: docs, cfg, acks, mutes, suppress rules, alerts, push, findings, registry, history, ops. (AC-06, DASH-05, OPS-04, RISK-04, SEC-06, STO-01, STO-02, STO-03, STO-04, STO-05, STO-06, STO-07) |
 | `tests/unit/test_stream.py` | 7 | Event stream (stream.py + streamchecks.py): Suricata / syslog / host alerts tailed every few seconds by arrival time, (EVW-09, EVW-10) |
 | `tests/unit/test_ti_trend.py` | 1 | Threat-intel trend endpoint: built one snapshot at a time (never all snapshots in memory). (DASH-07) |
 | `tests/unit/test_unifi_cache.py` | 5 | Unit tests for the UniFi pre-warm cache (unifi.py): it lives in netmon.db (unifi_rows/unifi_streams + docs unifi/*), (SEC-06, STO-16) |

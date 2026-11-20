@@ -142,7 +142,10 @@ stages; with it off, the older event reviewer-only flow is used (described at th
    probability; `p ≥ related_min` (default 0.5) = related. **That answer is the verdict** — related and not related
    alike — stored with model name `cloudflare_clef`. 4 questions run in parallel (full clef: ~3 s each, ~70 links/min).
 2. **Events — one event reviewer call per settled correlated group.** Events joined by decided *related* links form a
-   **correlated group** (connected component). A group **settles** once its newest event is one **event window** old
+   **correlated group** (connected component). A group holds at most **one listed (threat-intel) domain**: a related
+   link that would join events about two different listed domains (e.g. `api.ipify.org` and `cdn.optimizely.com`) is
+   not followed, so each domain gets its own review, web research and label; events once labelled together with another
+   domain are reviewed again apart. A group **settles** once its newest event is one **event window** old
    and none of its links is undecided (late Elasticsearch arrivals are covered by the pull gate below, not a fixed
    slack); the worker loop then makes **one** event reviewer call for the whole group — the most severe, best-connected member is the anchor,
    the other members are its candidates — and stores the label and reason on **every member** (each weighed against
@@ -628,6 +631,22 @@ event review and classification.
 4. Every look-up is stored in `corr_llm.db` `web_queries` (time, event, model, search or page, why, result URLs,
    seconds, error) and audited as `aireview.websearch`; `review_events.web` / `.cited` count look-ups and cited pages
    per event review; `event_sources` keeps the cited pages per classified event.
+5. **Indicator hunt (research -> deeper analysis).** After the look-ups, the threat reports the review found are read in
+   full: pages the reviewer read, plus up to 2 search results that read like a threat report (`IOC_READS`; title or
+   snippet about malware, an attack, a hijack, IOCs ...). `iocs.py` pulls the attacker indicators out of them - domains,
+   URLs, public IPs, file hashes, re-fanged from `1688360[.]cc` / `hxxps://` - skipping link and image targets, file
+   names (`track.js`), well-known platforms, the publisher's own site, the event's own indicators and private addresses.
+   Each indicator is then hunted (host broker `POST /iochunt` -> `es_context.hunt`, at most 120 per hour, cached 6 h per
+   indicator in `ioc_hunt`): one read-only aggregation over the Zeek (DNS, TLS, HTTP, connections), Suricata and endpoint
+   logs of the **last 30 days** (sub-names of an attacker's domain count via `dns.highest_registered_domain`), giving
+   hits, first / last time, the busiest local devices and log types; Syn's own stored events that name it are counted
+   too. The result goes to the model as an `<ioc_hunt>` block (seen here = a device really contacted that
+   infrastructure; not seen = the report's later stages did not happen from this network) and is kept on the event
+   (`corr_llm.db` `event_iocs`; group members get the anchor's). The pop-ups, Open events window and Alerts show them as
+   **🔬 Researched artifacts**, each tagged *researched artifact*, with the report it came from (`[W4]`), *seen here N×*
+   (devices, last time) or *not seen here in 30 days*, and the usual notes / search buttons. **Send to research** does
+   the same for every threat report the research model reads (`web_fetch` returns `indicators` with `seen_here_30d`), and
+   stores them on the researched event.
 
 #### Re-reviews and the web cache
 

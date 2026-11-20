@@ -140,6 +140,78 @@ def run(req, anchor=None):
     return out
 
 
+HUNT_DAYS = 30
+_HFIELDS = {"dns": ("dns.query.name", "dns.highest_registered_domain", "ssl.server_name", "tls.client.server_name", "http.virtual_host",
+                    "url.domain", "destination.domain"),
+            "ip": ("destination.ip", "source.ip"),
+            "hash": ("hash.md5", "hash.sha1", "hash.sha256", "file.hash.md5", "file.hash.sha1", "file.hash.sha256",
+                     "process.hash.md5", "process.hash.sha1", "process.hash.sha256")}
+
+
+def hunt(iocs, days=HUNT_DAYS):
+    """Has this network ever touched these indicators? One aggregation over the Zeek, Suricata and endpoint logs of the
+    last `days` (<= 30): per indicator its hit count, first / last time, the busiest local hosts and the log types.
+    iocs = [{"kind": "dns" | "url" | "ip" | "hash", "value"}] (validated here; at most 20) -> {value: {...}}.
+    The DSL is built here from the validated values only (read-only _search, no scripts)."""
+    import ipaddress
+    days = max(1, min(int(days or HUNT_DAYS), 30))
+    flt, keys = {}, {}
+    for a in (iocs or [])[:20]:
+        kind, v = str((a or {}).get("kind") or ""), str((a or {}).get("value") or "").strip()
+        if kind == "url":
+            m = re.match(r"(?:https?|ftp)://([^/:?#]+)", v, re.I)
+            kind, v = "dns", (m.group(1) if m else "")
+        v = v.lower()
+        if kind == "dns" and re.fullmatch(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{1,23}", v) and len(v) <= 253:
+            p = v.split(".")
+            rd = ".".join(p[-3:] if len(p) >= 3 and len(p[-1]) == 2 and p[-2] in ("co", "com", "net", "org", "gov", "edu", "ac") else p[-2:])
+            should = [{"term": {f: v}} for f in _HFIELDS["dns"]]
+            if rd == v:  # the attacker's own registered domain: every sub-name counts too
+                should.append({"term": {"dns.highest_registered_domain": rd}})
+        elif kind == "ip":
+            try:
+                if not ipaddress.ip_address(v).is_global:
+                    continue
+            except ValueError:
+                continue
+            should = [{"term": {f: v}} for f in _HFIELDS["ip"]]
+        elif kind == "hash" and re.fullmatch(r"[0-9a-f]{32}|[0-9a-f]{40}|[0-9a-f]{64}", v):
+            should = [{"term": {f: v}} for f in _HFIELDS["hash"]]
+        else:
+            continue
+        k = f"i{len(flt)}"
+        flt[k], keys[k] = {"bool": {"should": should, "minimum_should_match": 1}}, (a.get("kind"), str(a.get("value")))
+    if not flt:
+        return {"days": days, "results": {}}
+    url, key = INTEG.es_url(), INTEG.es_key()
+    if not (url and key):
+        raise ValueError("Elasticsearch is not configured (Configuration > Integrations)")
+    now = datetime.now(timezone.utc)
+    body = {"size": 0, "timeout": "30s", "query": {"bool": {"filter": [{"range": {"@timestamp": {"gte": (now - timedelta(days=days)).isoformat(),
+                                                                                                   "lte": now.isoformat()}}}],
+                                                         "should": list(flt.values()), "minimum_should_match": 1}},
+            "aggs": {"ioc": {"filters": {"filters": flt}, "aggs": {
+                "first": {"min": {"field": "@timestamp"}}, "last": {"max": {"field": "@timestamp"}},
+                "hosts": {"terms": {"field": "source.ip", "size": 5}}, "logs": {"terms": {"field": "event.dataset", "size": 6}},
+                "names": {"terms": {"field": "dns.query.name", "size": 5}}}}}}
+    index = ",".join(INTEG.map_index(SOURCES[s][0]) for s in ("zeek", "suricata", "endpoint"))
+    r = urllib.request.Request(f"{url}/{index}/_search?ignore_unavailable=true&allow_no_indices=true", data=json.dumps(body).encode(),  # noqa: S310
+                               headers={"Authorization": f"ApiKey {key}", "Content-Type": "application/json"})
+    d = json.load(urllib.request.urlopen(r, context=ssl._create_unverified_context(), timeout=45))  # noqa: S310, S323
+    out = {}
+    for k, b in ((d.get("aggregations") or {}).get("ioc") or {}).get("buckets", {}).items():
+        if k not in keys:
+            continue
+        n = int(b.get("doc_count") or 0)
+        out[keys[k][1]] = {"kind": keys[k][0], "hits": n,
+                           "first": (b.get("first") or {}).get("value_as_string") if n else None,
+                           "last": (b.get("last") or {}).get("value_as_string") if n else None,
+                           "hosts": [{"ip": x["key"], "count": x["doc_count"]} for x in (b.get("hosts") or {}).get("buckets", [])],
+                           "logs": [x["key"] for x in (b.get("logs") or {}).get("buckets", [])],
+                           "names": [x["key"] for x in (b.get("names") or {}).get("buckets", [])]}
+    return {"days": days, "results": out, "checked": now.isoformat(timespec="seconds")}
+
+
 def describe():
     """The query help text placed in the event reviewer's system prompt."""
     return "\n".join(f"  - {k}: {v[1]}" for k, v in SOURCES.items())

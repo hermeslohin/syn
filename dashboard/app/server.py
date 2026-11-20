@@ -2049,6 +2049,20 @@ class H(BaseHTTPRequestHandler):
                 return self._json(enrich.queue_items())
             if path == "/api/llm/notes-consolidate":
                 return self._json(notes_consolidate.view())
+            if path == "/api/aireview/gpu":  # monitoring: GPU busy % per local model over the week (gpustat.py, scheduler job "gpu")
+                import gpustat
+                try:
+                    dys, stp, tzm = int((q.get("days") or ["7"])[0]), int((q.get("step") or ["30"])[0]), int((q.get("tz") or ["0"])[0])
+                except ValueError:
+                    dys, stp, tzm = 7, 30, 0
+                return self._json(gpustat.series(dys, stp, tzm))
+            if path == "/api/aireview/tokens":  # monitoring: tokens per hour/day of the decision model + event reviewer (aiusage)
+                import aiusage
+                try:
+                    dys, tzm = int((q.get("days") or ["30"])[0]), int((q.get("tz") or ["0"])[0])
+                except ValueError:
+                    dys, tzm = 30, 0
+                return self._json(aiusage.view(dys, tzm))
             if path == "/api/aireview/clef":  # monitoring page: decision-model numbers, loaded on their own (health check ~1 s)
                 return self._json({"clef": corr_llm._clef_ov_safe()})
             if path == "/api/aireview":  # ?rows=0: no verdict rows (paged by /verdicts); ?clef=0: no decision-model numbers (/clef)
@@ -2373,6 +2387,14 @@ def main():
                     print(f"host note expiry: {e}", file=sys.stderr)
             time.sleep(60)
     threading.Thread(target=_notes_nightly, daemon=True, name="notes-consolidate-timer").start()
+
+    def _ai_usage():  # token chart: fill history from the audit log once, then write the hourly buckets every minute
+        import aiusage
+        aiusage.backfill()
+        while True:
+            time.sleep(60)
+            aiusage.flush()
+    threading.Thread(target=_ai_usage, daemon=True, name="ai-usage").start()
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), H)
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2

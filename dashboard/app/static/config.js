@@ -52,11 +52,11 @@
         <input id="g-exp" type="number" min="0" max="365" step="1" value="${s.expire_days ?? 7}" style="width:5em" ${dis}> <span class="small">days</span>
         <div class="muted small">When an AI-closed event shows up again after this many days it reopens and closes again only on a verdict newer than the old closure (it is judged again). Your own closures never expire. 0 = never.
           Now: <b>${G.expire_due || 0}</b> due to expire on the next pass.</div></div>
-      ${D.admin ? `<div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button id="g-save">Save guard rails</button>
+      ${D.admin ? `<div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="muted small">Changes save as soon as you make them.</span>
         ${kept ? `<button id="g-reopen">Reopen ${kept} closed earlier that these rules would hold</button>` : ""}<span id="g-msg" class="small"></span></div>` : ""}
       ${samp ? `<details style="margin-top:8px"><summary class="small">Examples held back now</summary>${samp}</details>` : ""}</div>`;
   };
-  async function paint(el, D) {
+  async function paint(el, D, flash) {
     el.querySelector("#cfg-triage")?.remove();
     const s = D.settings || {};
     const R = D.review || {}, iv = R.interval_minutes, L = D.last_run || null;
@@ -85,16 +85,28 @@
         ${L ? ` Last auto-close pass ${esc(ft(L.at))} (${esc(L.trigger || "")}): closed ${Object.entries(L.closed || {}).map(([k, v]) => `${v} ${esc(k.replace("_", " "))}`).join(", ") || "nothing"}${L.reopened ? `, reopened ${L.reopened} (verdict changed)` : ""}${L.reopened_host ? `, reopened ${L.reopened_host} (host hold)` : ""}${L.expired ? `, ${L.expired} expired` : ""}${L.held && Object.keys(L.held).length ? `; held back ${Object.entries(L.held).map(([k, v]) => `${v} ${esc(GL[k] || k)}`).join(", ")}` : ""}.` : " No auto-close pass yet."}
         ${D.admin && OPTS.some((o) => s[o]) ? ` <button id="cfg-run">Run now</button>` : ""}</div>`);
     c.id = "cfg-triage"; el.appendChild(c);
-    const save = async (body, url = "/api/config/triage") => {
+    if (flash) { const m = c.querySelector("#g-msg"); if (m) { m.className = "small badge sev-good"; m.textContent = flash; } }
+    // every save sends the switches AND the guard rails as they are on screen, so one never discards unsaved edits of the other
+    const guardNow = () => {
+      const gc = c.querySelector("#g-conf"); if (!gc) return {};
+      return { min_conf: parseFloat(gc.value), expire_days: parseInt(c.querySelector("#g-exp").value, 10), host_hold: !!c.querySelector("#g-hold")?.checked,
+        protect: [...c.querySelectorAll(".g-cat:checked")].map((x) => x.dataset.k) };
+    };
+    // the four switches as shown (a tap that is still being saved counts as its new state)
+    const switchesNow = () => Object.fromEntries(OPTS.map((o) => { const x = c.querySelector(`.cfg-ac[data-k="${o}"]`); return [o, x ? x.checked : !!s[o]]; }));
+    let gT = 0;
+    const guardOk = (g) => !("min_conf" in g) || (g.min_conf >= 0 && g.min_conf <= 1 && g.expire_days >= 0 && g.expire_days <= 365);
+    const save = async (body, url = "/api/config/triage", msg) => {
       c.style.opacity = 0.6;
-      try { const R = await apiPost(url, body); S.acks = await api("/api/acks").catch(() => S.acks); paint(el, R); }
-      catch (e) { c.style.opacity = 1; alert(String(e)); }
+      try { const R = await apiPost(url, body); S.acks = await api("/api/acks").catch(() => S.acks); paint(el, R, msg); }
+      catch (e) { c.style.opacity = 1; const m = c.querySelector("#g-msg"); if (msg && m) { m.className = "small sev-high"; m.textContent = "Not saved: " + String(e.message || e); } else alert(String(e)); }
     };
     c.querySelectorAll(".cfg-ac").forEach((cb) => (cb.onchange = () => {
-      const v = { ...Object.fromEntries(OPTS.map((o) => [o, !!s[o]])), [cb.dataset.k]: cb.checked };
       const n = D[cb.dataset.k]?.would_close || 0;
       if (cb.checked && n && !confirm(`${n} item(s) where ${lbl(cb.dataset.k)} will be closed after the next review run (or press Run now), and new ones after every run. Continue?`)) { cb.checked = false; return; }
-      save(v);
+      clearTimeout(gT);  // this save carries the guard rails too (a pending guard-rail save is folded in)
+      const g = guardNow();
+      save({ ...switchesNow(), ...(guardOk(g) ? g : {}) });
     }));
     const rh = c.querySelector("#rv-h"), rm = c.querySelector("#rv-m"), rs = c.querySelector("#rv-save"), rmsg = c.querySelector("#rv-msg");
     const tot = () => (parseInt(rh.value, 10) || 0) * 60 + (parseInt(rm.value, 10) || 0);
@@ -110,13 +122,17 @@
         catch (e) { rmsg.className = "small sev-high"; rmsg.textContent = String(e); }
       };
     }
-    const gs = c.querySelector("#g-save");
-    if (gs) gs.onclick = () => {
-      const mc = parseFloat(c.querySelector("#g-conf").value), ed = parseInt(c.querySelector("#g-exp").value, 10);
-      if (!(mc >= 0 && mc <= 1) || !(ed >= 0 && ed <= 365)) { c.querySelector("#g-msg").textContent = "confidence 0–1, days 0–365"; return; }
-      save({ ...Object.fromEntries(OPTS.map((o) => [o, !!s[o]])), min_conf: mc, expire_days: ed, host_hold: !!c.querySelector("#g-hold")?.checked,
-        protect: [...c.querySelectorAll(".g-cat:checked")].map((x) => x.dataset.k) });
+    // guard rails save on every change (like the switches above): checkboxes at once, the two numbers when you leave the field
+    const saveGuard = () => {
+      clearTimeout(gT);
+      gT = setTimeout(() => {
+        const g = guardNow(), m = c.querySelector("#g-msg");
+        if (!guardOk(g)) { m.className = "small sev-high"; m.textContent = "Not saved: confidence 0–1, days 0–365"; return; }
+        m.className = "small"; m.textContent = "Saving…";
+        save({ ...switchesNow(), ...g }, "/api/config/triage", "Saved ✓");
+      }, 300);
     };
+    if (D.admin) c.querySelectorAll("#g-conf, #g-exp, #g-hold, .g-cat").forEach((x) => (x.onchange = saveGuard));
     const gr = c.querySelector("#g-reopen");
     if (gr) gr.onclick = () => {
       if (confirm(`Reopen the AI closures that today's confidence bar or protected categories would not allow? They come back to the open findings and close again only if a verdict passes the rules.`)) save({}, "/api/config/triage/reopen-guard");

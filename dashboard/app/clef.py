@@ -116,7 +116,7 @@ def _so_prompt(state, question):
             "<|im_start|>assistant\n<think>\n\n</think>\n\n")
 
 
-def _so_ask(state, questions, url, timeout):
+def _so_ask(state, questions, url, timeout, model=""):
     import math
     out = {}
     t = time.time()
@@ -135,6 +135,8 @@ def _so_ask(state, questions, url, timeout):
                 STATS["timeouts"] += 1
                 if attempt == 2:
                     raise
+        mi = d.get("meta_info") or {}
+        _usage(model, mi.get("prompt_tokens"), mi.get("completion_tokens"))
         by_id = {int(i): float(lp) for lp, i, *_ in d["meta_info"]["output_token_ids_logprobs"][0]}
         sc = [by_id[i] / SO_TEMPERATURE for i, _, _ in SO_LABELS]
         m = max(sc)
@@ -143,12 +145,21 @@ def _so_ask(state, questions, url, timeout):
     return out, (time.time() - t) * 1000
 
 
+def _usage(model, tin, tout):
+    """Tokens of one decision-model call -> the monitoring page's token chart (aiusage, step "correlation")."""
+    try:
+        import aiusage
+        aiusage.record("correlation", "clef", model, tin, tout)
+    except Exception as e:  # noqa: BLE001 - accounting must never fail a decision
+        print(f"clef: usage not recorded: {e}", file=sys.stderr)
+
+
 def ask(state, questions, url=None, timeout=TIMEOUT):
     """One /v1/systemone call -> ({question: probability of yes}, milliseconds)."""
     cfg = config()
     url = _loopback(url or cfg["url"], cfg["url"])
     if _is_so(cfg["model"]):
-        return _so_ask(state, questions, url, timeout)
+        return _so_ask(state, questions, url, timeout, cfg["model"])
     body = json.dumps({"model": cfg["model"], "state": state, "questions": {k: {"type": "noul", "instructions": q} for k, q in questions.items()}}).encode()
     req = urllib.request.Request(url + "/v1/systemone", data=body, headers={"Content-Type": "application/json"})  # noqa: S310
     t = time.time()
@@ -162,6 +173,8 @@ def ask(state, questions, url=None, timeout=TIMEOUT):
             if attempt == 2:
                 raise
     ms = (time.time() - t) * 1000
+    us = d.get("usage") or {}
+    _usage(cfg["model"], us.get("input_tokens", us.get("prompt_tokens")), us.get("output_tokens", us.get("completion_tokens")))
     ans = d.get("answers") or {}
     out = {}
     for k in questions:

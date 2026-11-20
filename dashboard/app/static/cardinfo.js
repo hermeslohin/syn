@@ -170,10 +170,20 @@ window.CARD_INFO = {
 "use": "Status should be Idle or Running with no failure streak. Run every and the lookback window are set on AI pipeline configuration, Event review (Review job schedule). Run now starts a run within 20 seconds; Pause stops scheduled runs. Expand the run summary to read the latest counts.",
 "what": "Status of the scheduled review job: each run collects and analyzes the latest logs, then the event reviewer compares new events with earlier notes and copies a matching note; everything else waits in the queue. Shows health, event reviewer model, schedule, last run, note coverage and recent runs. The review job never researches events: that happens only when someone clicks Send to research."
 },
-"aireview|Time and tokens: review job, event research and Ask AI chat": {
-"source": "Token counts reported by the AI provider for every call: review runs (review.py), event research (research.py, per researched event) and Ask AI chat turns (chat.py, chat.db). Cost is estimated from the prices entered for the model under AI providers; local models cost $0.",
+"aireview|GPU use: local models (this week)": {
+"source": "The host's GPU sampler (gpustat.py, run by the scheduler): nvidia-smi pmon reads how busy the GPU's compute units were for each process every 5 seconds; SGLang is the decision model (clef), vLLM the event reviewer (gemma4-26b). Averaged per minute, shown per 30 minutes, kept 30 days.",
+"what": "Stacked lines of the share of the DGX Spark's GPU used by each local model over the last 7 days; the top edge is the total GPU busy. The boxes give the week's averages and which model used more.",
+"use": "See which model is loading the Spark and how much headroom is left. GPU memory is reserved up front by both servers, so it does not show use; compute busy % does. The figures are approximate (NVIDIA's per-process sampling)."
+},
+"aireview|Tokens: correlation and event reviewer": {
+"source": "Token counts reported by the models for every background call of the AI pipeline: the decision model (correlation of links), the event reviewer, and the owner advice and note consolidation calls that use the event reviewer's model. Summed per hour in the AI pipeline database; older event reviewer history comes from the audit log.",
+"what": "Stacked bars of the tokens used per day (per hour for the last 24 h) by each step, so the top edge is the total. When prices are set for these models, a dashed line shows the estimated cost in US $ on the right axis. Hover a point for calls, input and output tokens per step.",
+"use": "Watch for a step whose tokens jump (a queue flood, a noisy event family or a prompt change). Set model prices under AI pipeline configuration > AI providers to see what the pipeline would cost on a paid model."
+},
+"aireview|Time and tokens: event research and Ask AI chat": {
+"source": "Token counts reported by the AI provider for every call: event research (research.py, per researched event) and Ask AI chat turns (chat.py, chat.db). Cost is estimated from the prices entered for the model under AI providers; local models cost $0.",
 "use": "Watch for days that take much longer or use far more tokens than usual. Cache re-reads are hidden by default; click their legend entry to show them. Picking another research model in the Models box previews its cost.",
-"what": "Stacked bars of the tokens per day used by the review job, event research and Ask AI chat (new input, cache writes, output; grey when the provider gave no cache split) with time and estimated cost as lines (hover a day for the split). Each researched event is listed under Research review, Event research."
+"what": "Stacked bars of the tokens per day used by event research and Ask AI chat (new input, cache writes, output; grey when the provider gave no cache split) with time and estimated cost as lines (hover a day for the split). Each researched event is listed under Research review, Event research."
 },
 "aiconfig|Event research limits": {
 "source": "Event research settings in the netmon store (research_cfg.py), enforced by research.py before every model call.",

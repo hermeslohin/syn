@@ -646,9 +646,9 @@ def main():
                               "dns_domains": {c["domain"]: c["unique_subdomains"] for c in snap.get("dns_tunnel", [])},
                               "totals": {k: snap["totals"][k] for k in ("conns", "ip_bytes", "internet_ip_bytes", "missed_bytes")}},
                              keep=KEEP)
-    # nightly housekeeping: consistent backup of the store (keeps 14) + integrity check
+    # nightly housekeeping: consistent backup of the store once a day (keeps 14) + integrity check
     try:
-        print("store backup:", store.backup(), "integrity:", store.integrity())
+        print("store backup:", store.backup(daily=True), "integrity:", store.integrity())
     except Exception as e:
         print("store backup FAILED:", e)
     print(ap, f"baseline_days_before={days}", f"findings={len(findings)}")

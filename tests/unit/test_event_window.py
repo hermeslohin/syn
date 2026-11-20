@@ -327,6 +327,34 @@ class TestGroupReview(unittest.TestCase):
         self.assertEqual(len(self.calls), 2)
         self.assertEqual(self.labels(), {"a": "benign", "b": "benign", "d": "benign"})
 
+    def test_listed_domains_reviewed_apart(self):
+        """Related events about two different listed domains are never one group: each domain is reviewed on its own, and
+        events labelled together with another domain earlier are reviewed again apart.
+        REQ: EVW-11"""
+        now = 1_800_000_000
+        dom = {"ipa": {"api.example.com"}, "ipb": {"api.example.com"}, "cdn": {"cdn.example.net"}}
+        td = lambda e: frozenset(dom.get((e or {}).get("label"), ()))  # noqa: E731
+        base = {"events": {"ipa": _ev("ipa", now - 5000), "ipb": _ev("ipb", now - 5000), "cdn": _ev("cdn", now - 5000),
+                           "spike": _ev("spike", now - 5000)},
+                "related": {"ipa": [{"id": "cdn", "score": 5, "why": []}, {"id": "ipb", "score": 5, "why": []}],
+                            "cdn": [{"id": "spike", "score": 5, "why": []}]}}
+        self.decide("ipa", "cdn"); self.decide("ipa", "ipb"); self.decide("cdn", "spike")
+        with mock.patch.object(corr_llm, "_ti_domains", td):
+            G = sorted(sorted(g["members"]) for g in corr_llm.groups_of(base))
+            self.assertEqual(G, [["cdn", "spike"], ["ipa", "ipb"]])
+            self.assertEqual(corr_llm.event_pass(base, now=now), 2)
+            self.assertEqual(len(self.calls), 2)  # one review per domain
+            for anchor, cands in self.calls:  # no call carries the other domain's events
+                labels = {anchor, *cands}
+                self.assertFalse({"ipa", "ipb"} & labels and "cdn" in labels)
+            # a label stored by an old mixed review (covering both domains) is reviewed again within its own group
+            with corr_llm._db() as c:
+                mixed = json.dumps({"m": ["cdn", "ipa", "ipb", "spike"], "t": ""})
+                c.execute("UPDATE event_class SET covered=?", (mixed,))
+            self.calls.clear()
+            self.assertEqual(corr_llm.event_pass(base, now=now + 60), 2)
+            self.assertEqual(corr_llm.event_pass(base, now=now + 120), 0)  # then settled: not asked again
+
     def test_high_severity_fast_path(self):
         """A high-severity event with no label gets a provisional label at once; its group review follows the settle.
         REQ: EVW-05"""

@@ -21,6 +21,8 @@ the host (systemd user unit netmon-broker.service, plain /usr/bin/python3, stdli
                   {action: images | image | images_run} -> container image updates + CVEs (kube_images.py; images_run
                   starts a background scan, Trivy in a container).
   POST /esquery   {query, anchor} -> one bounded, read-only Elasticsearch search for the event reviewer
+  POST /iochunt   {iocs: [{kind, value}], days} -> indicators from a threat report the AI read: seen here in the last
+                  30 days? (es_context.hunt: one aggregation, DSL built from validated values). At most 120 per hour.
                   (es_context.py builds it from a structured request; the model never sends DSL). At most 600 per hour.
   POST /evtime    {items} -> Posture: look up when the events of a time range happened (Elasticsearch record times,
                   evtime.py) in the background into the event_times table. -> {queued, pending}.
@@ -64,6 +66,25 @@ def esquery(b):
     out = es_context.run(b.get("query"), b.get("anchor"))
     out["seconds"] = round(time.time() - t, 2)
     return out
+
+
+_ioc_sent = []
+IOC_RATE = (120, 3600)  # indicator hunts per hour (one aggregation each; the dashboard caches results per indicator)
+
+
+def iochunt(b):
+    """Indicators named in a threat report the AI read -> have they ever been seen here (last 30 days)? es_context.hunt."""
+    import es_context
+    with _lock:
+        now = time.time()
+        _ioc_sent[:] = [t for t in _ioc_sent if now - t < IOC_RATE[1]]
+        if len(_ioc_sent) >= IOC_RATE[0]:
+            raise ValueError("rate limit: too many indicator hunts this hour")
+        _ioc_sent.append(now)
+    iocs = b.get("iocs")
+    if not isinstance(iocs, list):
+        raise ValueError("iocs: a list of {kind, value}")
+    return es_context.hunt(iocs, b.get("days"))
 
 
 _evt_lock, _evt_queue = threading.Lock(), {}
@@ -374,6 +395,8 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, research_event(b))
             if self.path == "/esquery":
                 return self._send(200, esquery(b))
+            if self.path == "/iochunt":
+                return self._send(200, iochunt(b))
             if self.path == "/evtime":
                 return self._send(200, evtime_req(b))
             if self.path == "/clef":

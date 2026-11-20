@@ -234,7 +234,7 @@
         ${c?.label === "pending" ? `<div>${vdT(x.eid, pendBadge(c))}<div class="small muted">${esc(pendTitle(c.pending))}</div></div>` : c?.label === "unreviewed" ? `<div>${vdT(x.eid, unrevBadge(c))}</div>` : c ? `<div>${vdT(x.eid, `<span class="note-v v-${vcls(c.label)}">${esc(c.label)}</span>`)} <span class="small muted">AI classification · confidence ${Math.round((c.confidence || 0) * 100)}%</span> ${c.pending ? pendBadge(c) : ""}
           ${c.owner && window.relUi?.ownerHtml ? `<div>${window.relUi.ownerHtml(c)}</div>` : ""}
           ${c.reason ? `<div class="small">${/^Decision model:/.test(c.reason) ? "" : aiFlare({ model: String(c.model || "").split(" + ").pop(), via: "event reviewer", at: c.at ? new Date(c.at * 1000).toISOString() : "" }) + " "}${window.relUi?.reasonHtml ? window.relUi.reasonHtml(c.reason, c.sources) : esc(c.reason)}</div>` : ""}
-          ${window.relUi?.sourcesHtml ? window.relUi.sourcesHtml(c.sources) : ""}</div>` : ""}
+          ${window.relUi?.sourcesHtml ? window.relUi.sourcesHtml(c.sources) : ""}${window.relUi?.iocsHtml ? window.relUi.iocsHtml(c.iocs, c.sources) : ""}</div>` : ""}
         ${n ? `<div style="margin-top:6px"><span class="note-v v-${vcls(n.verdict)}">📝 ${esc(n.verdict || "note")}</span> <span class="small muted">research note${n.priority ? " · priority " + esc(n.priority) : ""}</span>
           ${n.summary ? `<div class="small"><b>${esc(n.summary)}</b></div>` : ""}</div>` : ""}</div>` : "";
     const advHtml = X.advice?.[x.eid] && window.relUi?.adviceDetails ? window.relUi.adviceDetails(X.advice[x.eid]) : "";

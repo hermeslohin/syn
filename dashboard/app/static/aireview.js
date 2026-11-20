@@ -54,7 +54,7 @@
     c.id = "ai-review-job";
     if (D.admin && J) wireRunButtons(c, J);
     // RV = review runs, U = event research (Send to research), CU = Ask AI chat turns: all counted in the same day totals
-    const RV = ((J && J.usage) || []).map((u) => ({ ...u, review: true })), U = (J && J.research_usage) || [], CU = (J && J.chat_usage) || [], AL = [...RV, ...U, ...CU];
+    const RV = [], U = (J && J.research_usage) || [], CU = (J && J.chat_usage) || [], AL = [...RV, ...U, ...CU];
     let uc = null;
     USAGE = null;
     if (AL.length) {  // time + token use per day (review job, event research, chat); the researched-events list lives in Research review
@@ -82,7 +82,7 @@
       const tpm = mins > 0 ? Math.round(tokAll / mins) : 0, tpmR = mins > 0 ? Math.round((tokAll + readsAll) / mins) : 0;
       const work = S.reduce((a, u) => a + u.fresh + u.cache_write + u.completion, 0), reads = S.reduce((a, u) => a + u.cache_read, 0);
       // own box (user request): title is the card h2, the summary line sits under it
-      uc = card("Time and tokens: review job, event research and Ask AI chat", "");
+      uc = card("Time and tokens: event research and Ask AI chat", "");
       uc.id = "ai-usage";
       const chart = uc;  // header + .chart as direct children so cards.js marks it cc-chart (no phone height cap)
       if (AL.length) {
@@ -109,7 +109,7 @@
             y2: { position: "right", beginAtZero: true, grid: { drawOnChartArea: false }, title: { display: true, text: "US $ per day" }, ticks: { callback: (v) => "$" + v } } },
             plugins: { tooltip: { callbacks: { footer: (it) => { const d = days[it[0].dataIndex];
               const p = USAGE && USAGE.preview, pc = p ? d.runs.reduce((a, u) => a + runCost(u, p.price), 0) : null;
-              return `${d.reviews.length} review run${d.reviews.length === 1 ? "" : "s"} · ${d.runs.length} researched event${d.runs.length === 1 ? "" : "s"}` + (d.chat.length ? ` · ${d.chat.length} Ask AI turn${d.chat.length === 1 ? "" : "s"} (${fn(d.chatTok)} tokens, ${d.chatMins.toFixed(1)} min${d.chatCost != null ? ", $" + d.chatCost.toFixed(2) : ""})` : "") + (d.cost != null ? ` · est. $${d.cost.toFixed(2)}` : "") +
+              return `${d.runs.length} researched event${d.runs.length === 1 ? "" : "s"}` + (d.chat.length ? ` · ${d.chat.length} Ask AI turn${d.chat.length === 1 ? "" : "s"} (${fn(d.chatTok)} tokens, ${d.chatMins.toFixed(1)} min${d.chatCost != null ? ", $" + d.chatCost.toFixed(2) : ""})` : "") + (d.cost != null ? ` · est. $${d.cost.toFixed(2)}` : "") +
                 ` · ${d.models}${d.runs.some((u) => u.error) ? " · some failed" : ""}` + (pc != null ? `\nWith ${p.model}: ~$${pc.toFixed(2)}` : ""); } } } } } };
         queueChart(chart.querySelector("canvas"), cfg);
         // the chart may not exist yet (queued until the page is laid out): the preview edits this dataset object directly
@@ -126,6 +126,101 @@
       { k: "duration_s", t: "Took", num: true, fmt: (v, r) => esc(r.status === "running" ? `${dur(Math.round(now - r.started))} so far` : dur(v)) },
     ], runs, { sort: "started", limit: 12 }) : Object.assign(document.createElement("div"), { className: "empty", textContent: "No runs recorded yet." }));
     return uc ? [c, uc] : [c];
+  }
+
+  // Monitoring > Models: "GPU use: local models" - stacked line of how busy the Spark's GPU was per local model over the week
+  // (GET /api/aireview/gpu, host sampler gpustat.py: nvidia-smi per-process SM busy %, averaged per 30 min).
+  const GPU_COL = { decision: "#7fa8d9", reviewer: "#bc8cff", other: "#a3a3a6" };
+  const gpuUrl = () => `/api/aireview/gpu?days=7&step=30&tz=${-new Date().getTimezoneOffset()}`;
+  function gpuCard(R) {
+    const c = card("GPU use: local models (this week)", ""); c.id = "ai-gpu";
+    const P = R.points || [], A = R.avg || {};
+    const pc = (v) => (v == null ? "—" : (v < 10 ? v.toFixed(1) : Math.round(v)) + "%");
+    const d = A.decision || 0, r = A.reviewer || 0, o = A.other || 0;
+    const more = d === r ? "" : !r ? "only the decision model used the GPU" : !d ? "only the event reviewer used the GPU"
+      : d > r ? `the decision model used ${(d / r).toFixed(1)}x the event reviewer's share` : `the event reviewer used ${(r / d).toFixed(1)}x the decision model's share`;
+    const kp = c.appendChild(Object.assign(document.createElement("div"), { className: "kpis" }));  // built as text nodes: no HTML sink
+    for (const [l, v] of [["Decision model (clef)", pc(A.decision)], ["Event reviewer (gemma)", pc(A.reviewer)], ["Spark GPU busy, both + other", pc(d + r + o)],
+      ["Avg GPU power", A.power == null ? "—" : Math.round(A.power) + " W"]]) {
+      const k = kp.appendChild(Object.assign(document.createElement("div"), { className: "kpi" }));
+      k.appendChild(Object.assign(document.createElement("div"), { className: "v", textContent: v }));
+      k.appendChild(Object.assign(document.createElement("div"), { className: "l", textContent: l }));
+    }
+    c.appendChild(Object.assign(document.createElement("div"), { className: "small muted", style: "margin-top:4px",
+      textContent: P.length ? `Average share of the GPU's compute since ${new Date(Math.max(P[0].t, Date.now() / 1000 - 7 * 86400) * 1000).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}` + (more ? `: ${more}.` : ".") : "" }));
+    const box = c.appendChild(Object.assign(document.createElement("div"), { className: "chart ai-tt" }));
+    if (!P.length) { box.innerHTML = `<div class="empty">No GPU samples yet: the scheduler's gpu job (gpustat.py) writes one row a minute.</div>`; return c; }
+    // the x axis always spans the whole week (30-min slots in the browser's zone, like the server's buckets); slots before
+    // sampling started stay empty
+    const stp = (R.step_min || 30) * 60, off = -new Date().getTimezoneOffset() * 60, now = Date.now() / 1000;
+    const slot = (t) => Math.floor((t + off) / stp) * stp - off, byT = new Map(P.map((p) => [p.t, p])), T = [];
+    for (let t = slot(now - (R.days || 7) * 86400) + stp; t <= slot(now); t += stp) T.push(t);
+    const PT = T.map((t) => byT.get(t) || null);
+    const lbl = T.map((t) => new Date(t * 1000).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" }));
+    const ds = [["decision", "Decision model (clef)"], ["reviewer", "Event reviewer (gemma4-26b)"], ["other", "Other GPU work"]].map(([k, l]) => ({ label: l,
+      data: PT.map((p) => (p ? p[k] : null)), borderColor: GPU_COL[k], backgroundColor: GPU_COL[k] + "66", fill: true, stack: "g",
+      pointRadius: (ctx) => { const i = ctx.dataIndex; return PT[i] && !PT[i - 1] && !PT[i + 1] ? 2 : 0; }, borderWidth: 1.5, tension: 0.25 }));
+    queueChart(box.appendChild(document.createElement("canvas")), { type: "line", data: { labels: lbl, datasets: ds }, options: {
+      interaction: { mode: "index", intersect: false },
+      scales: { x: { ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 7, callback(v) { return String(this.getLabelForValue(v)).split(",")[0].replace(/:00/, ""); } } },
+        y: { stacked: true, beginAtZero: true, suggestedMax: 5, title: { display: true, text: "% of the Spark GPU busy (30-min average)" }, ticks: { callback: (v) => v + "%" } } },
+      plugins: { tooltip: { callbacks: { label: (it) => `${it.dataset.label}: ${pc(it.parsed.y)}`,
+        footer: (it) => { const p = PT[it[0].dataIndex]; if (!p) return "not sampled"; const t = (p.decision || 0) + (p.reviewer || 0) + (p.other || 0);
+          return `Total ${pc(t)} of the GPU` + (p.power != null ? ` · ${Math.round(p.power)} W` : "") +
+            (p.decision_gb != null ? `\nGPU memory: clef ${p.decision_gb} GB, gemma ${p.reviewer_gb} GB` : "") + `\n${p.minutes} min sampled`; } } } } } });
+    c.appendChild(Object.assign(document.createElement("div"), { className: "small muted", style: "margin-top:6px",
+      textContent: "Approximate: NVIDIA's per-process compute sampling (nvidia-smi pmon every 5 s) for the SGLang (decision model) and vLLM (event reviewer) processes. Memory is reserved up front by both servers, so compute busy % is the measure of use." }));
+    return c;
+  }
+
+  // Monitoring > Models: "Tokens: correlation and event reviewer" - stacked bars (like Time and tokens) of the tokens the decision model (correlation),
+  // the event reviewer and the calls sharing its model used per hour / day (GET /api/aireview/tokens, server aiusage.py),
+  // with an estimated cost line when prices are set for those models (AI pipeline configuration > AI providers).
+  const TOK_COL = { correlation: "#7fa8d9", "event-review": "#bc8cff", advice: "#e1a948", notes: "#6cc287" };
+  const tokDays = () => { const v = +localStorage.getItem("aiTokDays"); return [1, 7, 30, 90].includes(v) ? v : 30; };
+  const tokUrl = (d) => `/api/aireview/tokens?days=${d}&tz=${-new Date().getTimezoneOffset()}`;
+  function tokenCard(R) {
+    const c = card("Tokens: correlation and event reviewer", ""); c.id = "ai-tokens";
+    const bar = c.appendChild(Object.assign(document.createElement("div"), { className: "small", style: "display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:4px" }));
+    const sel = document.createElement("select"); sel.setAttribute("aria-label", "Time span");
+    [[1, "Last 24 h (per hour)"], [7, "Last 7 days"], [30, "Last 30 days"], [90, "Last 90 days"]].forEach(([v, t]) => sel.add(new Option(t, v, false, v === tokDays())));
+    const sum = Object.assign(document.createElement("span"), { className: "muted" });
+    bar.append(sel, sum);
+    const box = c.appendChild(Object.assign(document.createElement("div"), { className: "chart ai-tt" }));
+    const draw = (R, first) => {
+      const B = R.buckets || [], steps = Object.keys(R.steps || {}).filter((k) => B.some((b) => b.tokens[k]));
+      const old = box.querySelector("canvas"); if (old) Chart.getChart(old)?.destroy();
+      box.innerHTML = "";
+      if (!B.length) { box.innerHTML = `<div class="empty">No token use recorded in this period yet.</div>`; sum.textContent = ""; return; }
+      const tot = (b) => steps.reduce((a, k) => a + (b.tokens[k] || 0), 0), all = B.reduce((a, b) => a + tot(b), 0);
+      const big = Math.max(...B.map(tot)) >= 2e6, U = big ? 1e6 : 1e3, un = big ? "M" : "k";
+      const usd = (b) => Object.values(b.cost || {}).reduce((a, v) => a + v, 0), cost = B.reduce((a, b) => a + usd(b), 0);
+      sum.textContent = `${fn(all)} tokens in total` + (R.priced ? ` · est. $${cost.toFixed(2)}` : " · no prices set for these models, so no cost line");
+      const lbl = B.map((b) => R.hourly ? b.t.slice(11) : new Date(b.t + "T12:00").toLocaleDateString([], { month: "short", day: "numeric" }));
+      const ds = steps.map((k) => ({ label: R.steps[k], data: B.map((b) => +((b.tokens[k] || 0) / U).toFixed(3)), borderColor: TOK_COL[k] || "#a3a3a6",
+        backgroundColor: TOK_COL[k] || "#a3a3a6", stack: "t", yAxisID: "y" }));
+      if (R.priced) ds.push({ label: "Est. cost ($)", type: "line", data: B.map((b) => +usd(b).toFixed(4)), borderColor: "#e06a5f", backgroundColor: "#e06a5f", borderDash: [6, 4],
+        pointRadius: B.length > 40 ? 0 : 3, tension: 0.2, yAxisID: "y2" });
+      const cv = box.appendChild(document.createElement("canvas"));
+      queueChart(cv, { type: "bar", data: { labels: lbl, datasets: ds }, options: { interaction: { mode: "index", intersect: false },
+        scales: { x: { stacked: true, ticks: { maxRotation: 50, autoSkip: true } },
+          y: { stacked: true, beginAtZero: true, title: { display: true, text: `tokens per ${R.hourly ? "hour" : "day"} (${big ? "millions" : "thousands"})` } },
+          ...(R.priced ? { y2: { position: "right", beginAtZero: true, grid: { drawOnChartArea: false }, title: { display: true, text: `US $ per ${R.hourly ? "hour" : "day"}` }, ticks: { callback: (v) => "$" + v } } } : {}) },
+        plugins: { tooltip: { callbacks: {
+          label: (it) => it.dataset.yAxisID === "y2" ? `Est. cost: $${it.parsed.y.toFixed(2)}` : `${it.dataset.label}: ${fn(Math.round(it.parsed.y * U))} tokens`,
+          footer: (it) => { const b = B[it[0].dataIndex];
+            return `Total ${fn(tot(b))} tokens (${un === "M" ? (tot(b) / 1e6).toFixed(2) + " M" : (tot(b) / 1e3).toFixed(1) + " k"})` +
+              steps.filter((k) => b.calls[k]).map((k) => `\n${R.steps[k]}: ${fn(b.calls[k])} calls, ${fn(b.prompt[k] || 0)} in / ${fn(b.completion[k] || 0)} out` +
+                (b.cost && b.cost[k] != null ? `, ~$${b.cost[k].toFixed(2)}` : "")).join(""); } } } } } });
+      if (!first) flushCharts();  // first draw: swapIn() draws it once the box is on the page
+    };
+    sel.onchange = async () => { localStorage.setItem("aiTokDays", sel.value); sum.textContent = "loading…";
+      try { draw(await api(tokUrl(sel.value))); } catch (e) { sum.textContent = "error: " + (e.message || e); } };
+    const ms = Object.entries(R.models || {}).map(([k, v]) => `${(R.steps || {})[k] || k}: ${v.join(", ")}`).join(" · ");
+    c.appendChild(Object.assign(document.createElement("div"), { className: "small muted", style: "margin-top:6px",
+      textContent: (ms ? "Models: " + ms + ". " : "") + "The decision model's tokens are counted from when this chart was added; the event reviewer's history comes from the audit log. Costs use the prices entered under AI pipeline configuration > AI providers." }));
+    draw(R, true);
+    return c;
   }
 
   // Run now / Pause buttons (.rj-run / .rj-toggle / .rj-msg) of the review job: on the monitoring status box and the schedule box
@@ -1085,7 +1180,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
   // Review log: every correlation-review pass that did work or failed, and every review-job run (Elasticsearch netmon.review)
   function reviewLogCard() {
     const c = card("Review log", `<div class="small muted">One entry per correlation-review pass (decision model links and labels, event reviewer notes) that did work or
-      hit a problem, and one per review-job run. Sent to Elasticsearch (event.dataset <span class="mono">netmon.review</span>, daily index
+      hit a problem. Sent to Elasticsearch (event.dataset <span class="mono">netmon.review</span>, daily index
       <span class="mono">logs-netmon.YYYY.MM.DD</span>).</div>
       <div class="llm-row" style="margin-top:6px"><span class="k">Period</span><select name="h"><option value="1">1 h</option><option value="24" selected>24 h</option>
       <option value="168">7 days</option><option value="720">30 days</option></select> <button type="button" name="r">Refresh</button> <span class="small muted src"></span></div>
@@ -1097,22 +1192,21 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     const load = async () => {
       body.textContent = "loading…";
       try {
-        const L = await api("/api/aireview/log?hours=" + sel.value), S = L.summary || {}, cr = S.correlation || {}, rj = S.review_job || {};
+        const L = await api("/api/aireview/log?hours=" + sel.value), S = L.summary || {}, cr = S.correlation || {};
         src.textContent = "from " + L.source + (L.error ? " — " + L.error : "");
         const lastProb = (x) => x.last_problem ? `${when(x.last_problem.ts)}: ${esc(x.last_problem.error || x.last_problem.message || x.last_problem.status)}` : "none";
         const busy = cr.busy_pct == null ? "—" : `<span title="${fn(cr.busy_passes || 0)} passes, ${fn(Math.round((cr.busy_s || 0) / 60))} min busy in this period; median pass ${cr.pass_p50_s == null ? "—" : cr.pass_p50_s + " s"}, longest ${fn(cr.pass_max_s || 0)} s">${cr.busy_pct}%</span>`;
         body.innerHTML = `${kpis([["Correlation review busy", busy, cr.busy_pct >= 90 ? "bad" : cr.busy_pct >= 70 ? "warn" : "good"],
             ["Pass time (median / longest)", cr.busy_passes ? `${cr.pass_p50_s ?? "—"} s / ${fn(cr.pass_max_s || 0)} s` : "—"],
             ["Correlation passes", `${fn(cr.entries || 0)} · ${fn(cr.problems || 0)} with problems`],
-            ["Events processed (passes)", fn(cr.events || 0)], ["Events processed (review jobs)", fn(rj.events || 0)],
+            ["Events processed (passes)", fn(cr.events || 0)],
             ["Links decided", fn(cr.links || 0)], ["Events labelled / reviewed", `${fn(cr.labelled || 0)} / ${fn(cr.reviewed || 0)}`],
-            ["Event reviewer failures", fn(cr.rfail || 0)], ["Review-job runs", `${fn(rj.entries || 0)} · ${fn(rj.problems || 0)} failed`]])}
+            ["Event reviewer failures", fn(cr.rfail || 0)]])}
           <div class="idgrid" style="margin-top:6px">
-            <span class="k">Correlation review</span><span>last ${when(cr.last)} ${cr.last_status ? badge(cr.last_status) : ""} · last problem: ${lastProb(cr)}</span>
-            <span class="k">Review job</span><span>last ${when(rj.last)} ${rj.last_status ? badge(rj.last_status) : ""} · last problem: ${lastProb(rj)}</span></div>`;
-        body.appendChild((L.rows || []).length ? table(null, [
+            <span class="k">Correlation review</span><span>last ${when(cr.last)} ${cr.last_status ? badge(cr.last_status) : ""} · last problem: ${lastProb(cr)}</span></div>`;
+        const rows = (L.rows || []).filter((r) => r.kind !== "review_job");  // review-job runs are not tracked here (user request)
+        body.appendChild(rows.length ? table(null, [
           { k: "ts", t: "Time", fmt: (v) => when(v) },
-          { k: "kind", t: "What", fmt: (v, r) => (v === "review_job" ? `Review job${r.trigger ? ` (${esc(r.trigger)})` : ""}` : "Correlation pass") },
           { k: "status", t: "Status", fmt: (v) => badge(v) },
           { k: "seconds", t: "Took", num: true, fmt: (v) => (v == null ? "" : v + " s") },
           { k: "events", t: "Events processed", num: true, fmt: (v, r) => (v == null ? "" : fn(v) + (r.queued ? ` <span class="muted">(${fn(r.queued)} queued)</span>` : "")) },
@@ -1121,7 +1215,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
           { k: "reviewed", t: "Reviewed", num: true, fmt: (v) => (v == null ? "" : fn(v)) },
           { k: "rfail", t: "Failures", num: true, fmt: (v, r) => fn((v || 0) + (r.dfail || 0)) },
           { k: "error", t: "Problem", cls: "small", fmt: (v) => esc(String(v || "").slice(0, 220)) },
-        ], L.rows, { sort: "ts", limit: 50 }) : Object.assign(document.createElement("div"), { className: "muted", textContent: "No review activity in this period." }));
+        ], rows, { sort: "ts", limit: 50 }) : Object.assign(document.createElement("div"), { className: "muted", textContent: "No review activity in this period." }));
       } catch (e) { body.innerHTML = `<span class="bad">review log unavailable: ${esc(e.message)}</span>`; }
     };
     c.querySelector("[name=r]").onclick = load; sel.onchange = load;
@@ -1216,7 +1310,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
   const PART = [["ai-p-models", "Models"], ["ai-p-correlation", "Correlation review"], ["ai-p-event", "Event review"], ["ai-p-research", "Research review"]];
   const PART_SUB = {
     mon: ["The model behind each step, where it is served and whether it is up, and the time and tokens they use.", "Links between events proposed by the correlation script and the decision model's verdict on each; override them here.",
-      "The review job and the event reviewer: runs, events reviewed per day, its web look-ups, and the nightly host note consolidation.", "Events researched with Send to research: spend and tokens."],
+      "The event reviewer: events reviewed per day, its web look-ups, and the nightly host note consolidation.", "Events researched with Send to research: spend and tokens."],
     cfg: ["Which model each step uses and where it comes from: AI providers (cloud or local) and the decision model server.", "The decision model's thresholds and which links are sent for review.",
       "When the review job runs, what it looks back on, and which look-ups and notes the event reviewer gets.", "The research model's cost caps and its web / Elasticsearch access."]};
   const partHead = (el, i, mode) => { const [id, t] = PART[i]; el.appendChild(secHead(id, t, PART_SUB[mode][i])); };
@@ -1278,7 +1372,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     // now; a skeleton shows until the first one arrives, then each box fills in when its data lands (spinner until then).
     // A background refresh (route(true), S._noScroll) still swaps the page in one step: build() resolves only once all are in.
     const quiet = (pr) => (pr.catch(() => {}), pr);
-    const pCore = api("/api/aireview?rows=0&clef=0"), pClef = quiet(api("/api/aireview/clef")), pModels = quiet(api("/api/aireview/models"));
+    const pCore = api("/api/aireview?rows=0&clef=0"), pClef = quiet(api("/api/aireview/clef")), pModels = quiet(api("/api/aireview/models")), pTok = quiet(api(tokUrl(tokDays()))), pGpu = quiet(api(gpuUrl()));
     const sk = document.createElement("div");
     sk.innerHTML = kpis(["Status", "Queue (no note yet)", "Awaiting review", "Confirmed (this snapshot)", "Rejected (this snapshot)", "Reviews / min", "Tokens / min", "Done in"].map((l) => [l, "…"])).replace('class="kpis', 'class="kpis sec-loading-kpis');
     sk.appendChild(waitBox("", "Loading status, queue and settings…"));
@@ -1357,10 +1451,12 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
       } catch (e) { box.querySelector(".loading")?.remove(); box.insertAdjacentHTML("beforeend", `<pre>${esc(e)}</pre>`); }
     };
     el.insertAdjacentHTML("beforeend", `<div class="tbltools small"><span class="muted">Jump to:</span> ${PART.map(([id, t]) => `<a href="#/aireview?at=${id}">${t}</a>`).join(" · ")}</div>`);
-    const [rjob, usage] = reviewJobCard(D.review_status || {}, D);
+    const [, usage] = reviewJobCard(D.review_status || {}, D);
     partHead(el, 0, "mon");
     el.appendChild(modelStatusCard(D, pModels));
     if (usage) el.appendChild(usage);  // Time and tokens lives under Models (user request), 2/3 of the box height
+    const tokPh = waitBox("Tokens: correlation and event reviewer", "Loading token use…", "ai-tokens"); el.appendChild(tokPh);
+    const gpuPh = waitBox("GPU use: local models (this week)", "Loading GPU use…", "ai-gpu"); el.appendChild(gpuPh);
     partHead(el, 1, "mon");
     const clefPh = waitBox("Decision model", "Loading decision model numbers…", "ai-clef"); el.appendChild(clefPh);
 
@@ -1385,8 +1481,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
 
     el.appendChild(reviewLogCard());
     partHead(el, 2, "mon");
-    el.appendChild(rjob);
-    el.appendChild(reviewVolumeCard(D));
+    el.appendChild(reviewVolumeCard(D));  // the review job's status box is not shown on monitoring (user request); it still runs (snapshots)
     el.appendChild(notesConsolidateCard(D));
     partHead(el, 3, "mon");
     el.appendChild(researchStatusCard(D));
@@ -1405,7 +1500,9 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     if (!S._morphing) flushCharts();  // the boxes above draw now, not after the slower parts below
     window.viewCoreDone?.();  // first load: the app's snapshot download may start now (app.js init)
     await Promise.allSettled([
-      pClef.then((r) => { D.clef = r.clef || {}; swapIn(clefPh, clefCard(D)); }, (e) => failBox(clefPh, e))]);
+      pClef.then((r) => { D.clef = r.clef || {}; swapIn(clefPh, clefCard(D)); }, (e) => failBox(clefPh, e)),
+      pTok.then((r) => swapIn(tokPh, tokenCard(r)), (e) => failBox(tokPh, e)),
+      pGpu.then((r) => swapIn(gpuPh, gpuCard(r)), (e) => failBox(gpuPh, e))]);
   };
   // Page entry: build inside a wrapper so a background refresh can swap the whole page in one step.
   V.aireview = async (el) => { const w = document.createElement("div"); el.appendChild(w); await build(w); };

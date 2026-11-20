@@ -112,7 +112,7 @@
       return `<div class="al-x-rev"><div class="al-x-h">🤖 Event reviewer <span class="muted small">${c?.label === "unreviewed" ? "not reviewed" : r ? "decision model only" : "not reviewed yet"}</span></div></div>`;
     const fl = typeof aiFlare === "function" ? aiFlare({ model: String(c.model || "").split(" + ").pop(), via: "event reviewer", at: c.at ? new Date(c.at * 1000).toISOString() : "" }) : "";
     return `<div class="al-x-rev"><div class="al-x-h">🤖 Event reviewer ${c.label ? vdT(a.eid, `<span class="note-v v-${vClass(c.label)}">${esc(c.label)}</span>`) : ""}${c.confidence ? ` <span class="small muted">${Math.round(c.confidence * 100)}%</span>` : ""} ${fl}</div>
-      <p class="al-x-p">${U.reasonHtml ? U.reasonHtml(r, c.sources) : esc(r)}</p>${U.sourcesHtml ? U.sourcesHtml(c.sources) : ""}</div>`; };
+      <p class="al-x-p">${U.reasonHtml ? U.reasonHtml(r, c.sources) : esc(r)}</p>${U.sourcesHtml ? U.sourcesHtml(c.sources) : ""}${U.iocsHtml ? U.iocsHtml(c.iocs, c.sources) : ""}</div>`; };
   // the analyst's advice for the device owner (advice.py): a separate verdict in plain language - what to do
   const advOf = (a) => a.advice || X().advice?.[a.eid];
   const advCell = (a) => { const v = advOf(a), U = window.relUi || {};

@@ -1,6 +1,7 @@
 """Unit tests for dashboard/app/autoclose.py: AI-verdict auto-close of open events (Open events page, any type/age)."""
 import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))); import _env  # noqa: E401,E402
 
+import json  # noqa: E402
 import time  # noqa: E402
 import unittest  # noqa: E402
 
@@ -250,6 +251,41 @@ class AutoCloseGuardRails(unittest.TestCase):
         kb.add_event_note(adm2, "my own login", "admin1", verdict="expected")
         r = autoclose.run({}, {}, [], trigger="test")
         self.assertEqual(r["person_expected"]["closed_now"], 1)
+
+    def test_scoped_person_verdict_closes_protected_event(self):
+        """A person's approved benign verdict scoped to artifacts (e.g. find:newly-registered-domain) closes a protected
+        event that shows them, once the event reviewer recorded the match (applied or agreed); it does not when the
+        reviewer held it back, nor when a source calls the event suspicious, and a rejected note never counts.
+        REQ: STO-12
+        """
+        import kb
+        nrd = f"f|newly-registered-domain|{MAC}|tackron.example registered 2026-11-02 (12 days old), 2 queries"
+        eventstore.upsert({nrd: {"type": "finding", "label": "newly-registered-domain: phone - tackron.example", "sev": "medium", "t1": 110}}, "s4")
+        self.assertIn("c2_exfil", autoclose.categories(nrd, "medium"))
+        nid = kb.add_event_note(f"f|newly-registered-domain|{MAC}|other.example registered", "new domains alone are fine", "admin1",
+                                verdict="benign", scope=["find:newly-registered-domain"])
+
+        def owner(**kw):
+            with corr_llm._db() as c:
+                c.execute("UPDATE event_class SET owner=? WHERE eid=?", (json.dumps({"verdict": "benign", "kind": "artifacts", "weight": 0.95,
+                          "note": nid, "match": ["find:newly-registered-domain"], **kw}), nrd))
+        _cls(nrd, "suspicious", 0.97)
+        owner(applied=False, held="event reviewer confident")
+        autoclose.run({}, {}, [], trigger="test")
+        self.assertIn(nrd, _open())  # held back by a confident suspicious reviewer
+        self.assertFalse(autoclose.push_check(nrd)["ok"])
+        _cls(nrd, "benign", 1.0)
+        owner(applied=False, agreed=True)
+        kb.review_event_note(nid, False, "admin2")
+        autoclose.run({}, {}, [], trigger="test")
+        self.assertIn(nrd, _open())  # rejected note: the AI verdict alone stays behind the protected category
+        kb.review_event_note(nid, True, "admin2")
+        self.assertEqual(autoclose.push_check(nrd)["source"], "person")
+        r = autoclose.run({}, {}, [], trigger="test")
+        self.assertEqual(r["person_benign"]["closed_now"], 1)
+        self.assertNotIn(nrd, _open())
+        a = [v for v in (store.acks_load(store._dc()).get("finding") or {}).values() if "find:newly-registered-domain" in str(v.get("note"))]
+        self.assertTrue(a)
 
     def test_suspicious_event_holds_and_reopens_its_host(self):
         """While an open event on a host is called suspicious, AI verdicts close nothing else on that host and AI

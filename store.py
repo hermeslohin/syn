@@ -1245,12 +1245,16 @@ def stats(c=None):
     return t
 
 
-def backup(dest_dir=None, keep=14, c=None):
-    """Consistent online copy (sqlite backup API) to baseline/backup/netmon-YYYYmmdd.db; keeps the last `keep`."""
-    c = c or _dc()
+def backup(dest_dir=None, keep=14, c=None, daily=False):
+    """Consistent online copy (sqlite backup API) to baseline/backup/netmon-YYYYmmdd.db; keeps the last `keep`.
+    daily=True (the pipeline's nightly housekeeping): once per day - a backup already made today is left alone instead of
+    being rewritten on every run (a 300+ MB copy every few minutes, and a live file changing under the ship test gate)."""
     dest_dir = dest_dir or os.environ.get("NETMON_BACKUP_DIR") or os.path.join(HERE, "baseline", "backup")
     os.makedirs(dest_dir, exist_ok=True)
     dest = os.path.join(dest_dir, f"netmon-{time.strftime('%Y%m%d')}.db")
+    if daily and os.path.exists(dest) and os.path.getsize(dest) > 0:
+        return dest + " (already made today)"
+    c = c or _dc()
     b = sqlite3.connect(dest)
     c.backup(b)
     b.close()

@@ -313,6 +313,30 @@ def guard_rails(mem, good, g, sus, hosts, evx, info, lx=None):
     return guard, why, good, hh, pc
 
 
+def _with_scoped(pv, ids, cls):
+    """pv (kb.person_verdicts: notes on the event itself) plus a person's SCOPED verdict for events without their own: an
+    approved expected / benign note whose chosen artifacts the event shows (e.g. benign for find:newly-registered-domain),
+    as the event reviewer recorded it on the event (event_class owner, kind 'artifacts'). It counts only when the reviewer
+    did not hold it back (applied, or the reviewer agreed); the note must still be approved with the same verdict. Marked
+    scoped=True: unlike a note on the event itself, it never outranks another source calling the event suspicious."""
+    import kb
+    try:
+        sc = {n["id"]: n for n in kb.scoped_verdicts()}
+    except Exception as e:  # noqa: BLE001 - own-event verdicts still work
+        print(f"autoclose: scoped verdicts unavailable: {e}", file=sys.stderr, flush=True)
+        return pv
+    for e in ids:
+        if e in pv:
+            continue
+        o = (cls.get(e) or {}).get("owner") or {}
+        if o.get("kind") != "artifacts" or not (o.get("applied") or o.get("agreed")):
+            continue
+        n = sc.get(o.get("note"))
+        if n and n["verdict"] == o.get("verdict"):
+            pv[e] = {**n, "scoped": True}
+    return pv
+
+
 def push_check(eid, members=()):
     """Phone-push gate (pushgate.py): may an urgent alarm about this event stay off the phones? ok=True only when its
     verdict is expected/benign (a person's, or an AI verdict that passes every guard rail above, the same
@@ -327,7 +351,8 @@ def push_check(eid, members=()):
         mem = list(dict.fromkeys([eid, *members]))
         oe = eventstore.open_events(limit=10 ** 6)["events"]
         ids = list(dict.fromkeys(mem + [i for e in oe for i in [e["eid"], *(e.get("members") or [])]]))
-        notes, cls, pv = enrich.load(ids), corr_llm.classes(ids), kb.person_verdicts(ids)
+        notes, cls = enrich.load(ids), corr_llm.classes(ids)
+        pv = _with_scoped(kb.person_verdicts(ids), ids, cls)
 
         def hosts(ms):
             out = set()
@@ -335,6 +360,8 @@ def push_check(eid, members=()):
                 out |= evx[m][2] if m in evx else _hosts_of(m)
             return out
         pn = max((pv[m] for m in mem if m in pv), key=lambda n: n["ts"] or 0, default=None)
+        if pn and pn.get("scoped") and any(v in BAD for m in mem for v in _verdicts(m, notes, cls).values()):
+            pn = None  # a scoped (artifact-wide) verdict never outranks a source calling this event suspicious
         if pn:  # a person's call outranks every AI verdict and every guard rail
             ok = pn["verdict"] in KINDS
             return {"ok": ok, "verdict": pn["verdict"], "source": "person", "guard": None, "why": "" if ok else "a person called it " + pn["verdict"]}
@@ -421,7 +448,7 @@ def run(raw, analysis, open_issues, other_eids=(), dry=False, trigger="manual", 
         ids = list(dict.fromkeys([i[0] for i in items] + list(other_eids) + [i for e in oe for i in [e["eid"], *(e.get("members") or [])]]))
         notes = enrich.load(ids)
         cls = corr_llm.classes(ids)
-        pv = kb.person_verdicts(ids)
+        pv = _with_scoped(kb.person_verdicts(ids), ids, cls)
         seen, handled = set(), set()
         rules = store.suppress_list(c)  # suppression outranks auto-close: a covered item is never reopened
 
@@ -472,6 +499,8 @@ def run(raw, analysis, open_issues, other_eids=(), dry=False, trigger="manual", 
             bad = any(v in BAD for v in vs.values()) or any(
                 v in BAD for m in others for v in _verdicts(m, notes, cls).values())
             pn = max((pv[m] for m in mem if m in pv), key=lambda n: n["ts"] or 0, default=None)
+            if pn and pn.get("scoped") and bad:
+                pn = None  # a scoped (artifact-wide) verdict never outranks a source calling this event suspicious
             if pn:  # a person's call outranks every AI verdict
                 vs["person"] = pn["verdict"]
                 bad = pn["verdict"] in BAD
@@ -547,7 +576,8 @@ def run(raw, analysis, open_issues, other_eids=(), dry=False, trigger="manual", 
                 if src == "person":
                     who = {"model": f"person:{pn['author']}"}
                     txt = str(pn["text"] or "").split("do not contradict it)", 1)[-1].lstrip(". ")  # the person's own words
-                    note = f"{PERSON_PREFIX}{v} (by {str(pn['author']).replace('user:', '')}){': ' + txt if txt else ''}"
+                    scope = f", applies to any event with {', '.join(pn.get('scope') or [])}" if pn.get("scoped") else ""
+                    note = f"{PERSON_PREFIX}{v} (by {str(pn['author']).replace('user:', '')}{scope}){': ' + txt if txt else ''}"
                 else:
                     who = info(src)
                     text = who.get("summary") if src == "researcher" else who.get("reason")
@@ -588,7 +618,8 @@ def run(raw, analysis, open_issues, other_eids=(), dry=False, trigger="manual", 
                 if more:
                     notes.update(enrich.load(more))
                     cls.update(corr_llm.classes(more))
-                pv.update(kb.person_verdicts([lg["eid"] for lg in gone if lg["eid"] not in pv]))
+                more_pv = [lg["eid"] for lg in gone if lg["eid"] not in pv]
+                pv.update(_with_scoped(kb.person_verdicts(more_pv), more_pv, cls))
                 for lg in gone:
                     vs = _verdicts(lg["eid"], notes, cls, pv)
                     if not vs:

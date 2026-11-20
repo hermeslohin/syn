@@ -184,7 +184,31 @@ class Job:
         r = webtools.fetch(str(a.get("url") or ""), a.get("max_chars") or 8000)
         self.fetched.add(r["url"])
         self.fetched.add(str(a.get("url")))
+        try:  # research -> deeper analysis: the report's attacker indicators, hunted through this network's logs (30 days)
+            r["indicators"] = self.ioc_pivot(r)
+        except Exception as e:  # noqa: BLE001 - the page itself is still returned
+            r["indicators_error"] = f"{type(e).__name__}: {str(e)[:150]}"
         return r
+
+    def ioc_pivot(self, page):
+        """Indicators named in a fetched page (iocs.extract) + whether this network ever touched them (es_context.hunt).
+        Kept per job in self.iocs; research.py stores them on the researched event as researched artifacts."""
+        import iocs as IOC, es_context
+        if not IOC.threat_like(page.get("title") or "", str(page.get("text") or "")[:3000]):
+            return []
+        self.__dict__.setdefault("iocs", [])
+        have = {x["value"] for x in self.iocs}
+        found = [x for x in IOC.extract(page.get("text") or "", page.get("url") or "") if x["value"] not in have]
+        if not self.es or not found:
+            return [{"kind": x["kind"], "value": x["value"]} for x in found]
+        H = es_context.hunt(found).get("results") or {}
+        out = []
+        for x in found:
+            h = H.get(x["value"]) or {"hits": 0}
+            out.append({"kind": x["kind"], "value": x["value"], "seen_here_30d": h.get("hits", 0), "first": h.get("first"), "last": h.get("last"),
+                        "devices": h.get("hosts") or [], "logs": h.get("logs") or []})
+            self.iocs.append({"kind": x["kind"], "value": x["value"], "src_url": page.get("url") or "", "wid": "", "hunt": {**h, "days": 30}, "syn": {}})
+        return out
 
     def t_cite(self, a):
         url, title = str(a.get("url") or "").strip(), str(a.get("title") or "").strip()[:200]
@@ -235,7 +259,7 @@ class Job:
                          {"filter": {"type": "string", "description": "optional IP / MAC / host / text filter"}}),
             "web_search": (self.t_search, "Search the web. Returns titles, URLs and snippets.",
                            {"query": {"type": "string"}, "n": {"type": "integer"}}, ["query"]),
-            "web_fetch": (self.t_fetch, "Read a public web page as text (needed before citing or linking it).",
+            "web_fetch": (self.t_fetch, "Read a public web page as text (needed before citing or linking it). For a threat report, \"indicators\" lists the attacker domains/URLs/IPs/hashes it names and whether this network contacted each in the last 30 days (seen_here_30d, devices, first/last): use them for deeper analysis and es_search the ones seen here.",
                           {"url": {"type": "string"}, "max_chars": {"type": "integer"}}, ["url"]),
             "cite": (self.t_cite, "Register a page you fetched as a source; returns its id for [n] citations.",
                      {"url": {"type": "string"}, "title": {"type": "string"}}, ["url", "title"]),

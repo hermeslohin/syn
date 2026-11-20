@@ -130,12 +130,41 @@
     const L = (srcs || []).filter((s) => safeUrl(s.url));
     return L.length ? `<div class="small oe-sources" style="margin-top:4px"><b>🌍 Web sources</b><ul style="margin:2px 0 0 1.2em;padding:0">${L.map((s) => `<li>${s.id ? `<b>[${esc(s.id)}]</b> ` : ""}<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer" title="${esc(s.url)}">${esc((s.title || s.url).slice(0, 90))}</a> <span class="muted">${esc(new URL(s.url).hostname)}</span></li>`).join("")}</ul></div>` : "";
   }
+  // researched artifacts: indicators (attacker domains, URLs, IPs, hashes) the AI found in the threat reports it read for this
+  // event, each hunted through this network's logs (last 30 days) and Syn's earlier events (corr_llm._ioc_pivot / research)
+  function iocsHtml(iocs, srcs) {
+    const L = (iocs || []).filter((a) => a && a.value);
+    if (!L.length) return "";
+    const by = {}; for (const x of srcs || []) if (x.id) by[x.id] = x;
+    const seenN = L.filter((a) => a.hunt?.hits).length;
+    const row = (a) => {
+      const h = a.hunt || {}, sy = a.syn || {}, days = h.days || 30;
+      const host = a.kind === "url" ? (String(a.value).match(/^\w+:\/\/([^/:?#]+)/) || [])[1] || "" : a.value;
+      const ak = a.kind === "url" ? "dns" : a.kind, src = safeUrl(a.src_url);
+      const from = src ? ` <span class="small muted">from <a href="${esc(src)}" target="_blank" rel="noopener noreferrer" title="${esc(by[a.wid]?.title || src)}">${a.wid ? "[" + esc(a.wid) + "]" : esc(new URL(src).hostname)}</a></span>` : "";
+      const seen = h.error ? `<span class="note-v v-needs-review" title="${esc(h.error)}">log search failed</span>`
+        : h.hits ? `<span class="note-v v-malicious" title="first ${esc(h.first || "?")} · last ${esc(h.last || "?")}${(h.logs || []).length ? " · " + esc(h.logs.join(", ")) : ""}">seen here ${esc(h.hits)}× in ${esc(days)} days</span>
+            <span class="small">devices ${(h.hosts || []).map((x) => `<code>${esc(x.ip)}</code> (${esc(x.count)}×)`).join(", ") || "?"} · last ${esc(ft(h.last))}</span>`
+        : `<span class="note-v v-benign" title="No DNS, TLS, HTTP, connection, IDS or endpoint record of it in this network's logs">not seen here in ${esc(days)} days</span>`;
+      const syn = sy.n ? ` <span class="small muted" title="${esc(sy.label || "")}">· named in ${esc(sy.n)} earlier Syn event${sy.n === 1 ? "" : "s"}</span>` : "";
+      return `<li><span class="ioc-tag" title="Found by the AI in a threat report it read while researching this event, then searched for in this network's logs">🔬 researched artifact</span>
+        <span class="art-k" title="${esc(a.kind)}">${ART_ICON[ak] || "🔗"} ${esc(a.kind)}</span> <code>${esc(a.value)}</code>
+        ${host ? `<button type="button" class="extnote-btn" data-extart="${esc(ak + ":" + host)}" title="Your notes on this artifact (the AI reads them)"><i class="ic ic-note" aria-hidden="true"></i></button>${window.artSearchBtn ? artSearchBtn(ak, host) : ""}` : ""}
+        ${seen}${syn}${from}${a.model ? " " + aiFlare({ model: String(a.model).replace(/ \(research\)$/, ""), via: /research/.test(a.model) ? "research" : "event reviewer", at: a.at ? new Date(a.at * 1000).toISOString() : "" }) : ""}</li>`;
+    };
+    return `<details class="note-arts ioc-arts"${seenN ? " open" : ""}><summary class="small"><b>🔬 Researched artifacts (${L.length})</b>
+      <span class="${seenN ? "bad" : "muted"}">${seenN ? `${seenN} seen in this network` : "none seen in this network"}</span></summary><ul>${L.map(row).join("")}</ul></details>`;
+  }
   // an AI reason with its [W1] markers turned into links to the cited pages
   function reasonHtml(reason, srcs) {
     const by = {}, loose = [];
     for (const x of srcs || []) if (safeUrl(x.url)) (x.id ? (by[x.id] = x) : loose.push(x));
-    for (const id of [...new Set((String(reason || "").match(/\[W\d+\]/g) || []).map((m) => m.slice(1, -1)))]) if (!by[id] && loose.length) by[id] = loose.shift();  // older rows: no stored id, match in order
-    return esc(reason || "").replace(/\[(W\d+)\]/g, (m, id) => by[id] ? `<a href="${esc(by[id].url)}" target="_blank" rel="noopener noreferrer" title="${esc(by[id].title || by[id].url)}">[${id}]</a>` : m)
+    // [W2] and grouped citations the models also write: [W1, W4, W5], [W1 and W2]
+    // a bracket whose parts, split on , ; & "and", are all Wn ids (no nested quantifiers: linear time on any reason)
+    const GRP = /\[([^[\]]{2,200})\]/g, ids = (g) => { const p = g.trim().split(/\s*(?:,|;|&amp;|&|\band\b)\s*/); return p.every((x) => /^W\d+$/.test(x)) ? p : []; };
+    for (const id of [...new Set([...String(reason || "").matchAll(GRP)].flatMap((m) => ids(m[1])))]) if (!by[id] && loose.length) by[id] = loose.shift();  // older rows: no stored id, match in order
+    const a = (id) => by[id] ? `<a href="${esc(by[id].url)}" target="_blank" rel="noopener noreferrer" title="${esc(by[id].title || by[id].url)}">${id}</a>` : id;
+    return esc(reason || "").replace(GRP, (m, g) => ids(g).some((id) => by[id]) ? "[" + ids(g).map(a).join(", ") + "]" : m)
       // analyst write-up: paragraphs kept, the three section headings in bold
       .replace(/(^|\n)\s*(Why it fired|What it actually was|Verdict):/g, (m, nl, h) => `${nl}<b>${h}:</b>`)
       .replace(/\n{2,}/g, "<br><br>").replace(/\n/g, "<br>");
@@ -203,7 +232,7 @@
   const adviceHtml = (v) => v ? `<div class="adv"><div class="adv-h">${advChip(v)} <b>${esc(v.headline || "")}</b></div>${advBody(v)}</div>` : "";
   // Open events: one collapsed arrow (summary = chip + headline)
   const adviceDetails = (v) => v ? `<details class="oe-det oe-sub adv-det"><summary>💬 Advice for the device owner: ${advChip(v)} ${esc(v.headline || "")}</summary><div class="adv">${advBody(v)}${typeof aiFlare === "function" && v.model ? `<div class="small muted">${aiFlare({ model: v.model, via: "advice for the device owner", at: v.at ? new Date(v.at * 1000).toISOString() : "" })}</div>` : ""}</div></details>` : "";
-  window.relUi = { artifactsHtml, ipArts, queryArtHtml, sourcesHtml, reasonHtml, inputsHtml, ownerHtml, advChip, adviceHtml, adviceDetails };  // used by the Open events window (openevents.js)
+  window.relUi = { artifactsHtml, ipArts, queryArtHtml, sourcesHtml, iocsHtml, reasonHtml, inputsHtml, ownerHtml, advChip, adviceHtml, adviceDetails };  // used by the Open events window (openevents.js)
   const loadingRel = new Set();
   function openStored(btn) {  // Open events row outside the loaded snapshot: fetch its stored links, then open
     const id = btn.dataset.rel; if (loadingRel.has(id)) return; loadingRel.add(id);
@@ -283,7 +312,7 @@
     const when = c && c.at ? `<div class="small muted" style="margin-top:4px">Reviewed ${esc(ft(isoAt(c.at)))}${c.model ? " · " + esc(String(c.model).split(" + ").pop()) + " (event reviewer)" : ""}</div>` : "";
     const why = !c ? "" : c.label === "pending" ? `<div class="small" style="margin-top:4px"><b>Why pending:</b> ${esc(pendTitle(c.pending))}${c.pending?.queued ? " Queued: the event opened after the event reviewer's last pass." : ""}</div>`
       : c.label === "unreviewed" ? `<div class="small" style="margin-top:4px"><b>Why not reviewed:</b> ${esc(c.unreviewed || c.reason || "no reason recorded")}</div>`
-      : `${c.pending ? `<div class="small muted" style="margin-top:4px">${esc(pendTitle(c.pending))}</div>` : ""}${c.owner ? `<div style="margin-top:4px">${ownerHtml(c)}</div>` : ""}<p>${reasonHtml(c.reason, c.sources)}</p>${sourcesHtml(c.sources)}`;
+      : `${c.pending ? `<div class="small muted" style="margin-top:4px">${esc(pendTitle(c.pending))}</div>` : ""}${c.owner ? `<div style="margin-top:4px">${ownerHtml(c)}</div>` : ""}<p>${reasonHtml(c.reason, c.sources)}</p>${sourcesHtml(c.sources)}${iocsHtml(c.iocs, c.sources)}`;
     const acHtml = !V ? "" : !ac.length ? `<div class="small muted" style="margin-top:6px">Auto-close: has not acted on this event.</div>`
       : `<div class="small" style="margin-top:6px"><b>Auto-close</b>${ac.map((r) => `<div class="vd-ac">${r.state === "closed" ? "🤖" : "↩"} ${esc(AC_STATE[r.state] || r.state)} · ${esc(ft(r.state === "expired" ? r.closed_at || r.at : r.at))}
           · verdict <b>${esc(r.verdict || "")}</b> from the ${r.source === "person" ? "person's verdict" : r.source === "reviewer" ? "event reviewer" : "research note"}${r.refs ? ` · ${r.refs} grouped item${r.refs === 1 ? "" : "s"}` : ""}

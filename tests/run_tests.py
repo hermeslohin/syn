@@ -87,6 +87,13 @@ def main():
     subprocess.run([sys.executable, os.path.join(HERE, "gen_docs.py"), "--results", out], check=False)
     clean = before[:2] == after[:2] and all(after[2].get(p) == m for p, m in before[2].items())
     print("isolation check:", "OK - live files and backups untouched" if clean else "WARNING - files outside tests/ changed during the run")
+    if not clean:  # say which, so a flaky gate can be traced
+        if before[0] != after[0]:
+            b, a = set(before[0].splitlines()), set(after[0].splitlines())
+            print("   git status before only:", sorted(b - a)[:10], "after only:", sorted(a - b)[:10])
+        if before[1] != after[1]:
+            print("   the git diff of tracked files outside tests/ changed during the run")
+        print("   touched:", sorted(os.path.basename(p) for p, m in before[2].items() if after[2].get(p) != m)[:10])
     sys.exit(0 if res.wasSuccessful() and clean else 1)
 
 

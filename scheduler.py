@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """netmon scheduler: runs the pipeline's recurring jobs on the host (systemd user unit netmon-scheduler.service).
 
+  gpu            always running              gpustat.py: GPU busy % of the decision model / event reviewer (nvidia-smi pmon),
+                 (restarted within 60 s)     one row a minute in netmon.db gpu_usage (exits hourly)
   stream         always running              stream.py: Suricata alerts, watched syslog, host alerts tailed every 15 s
                  (restarted within 20 s)     (arrival bookmark "arrival:stream"; exits hourly to pick up code changes)
   watcher        every event window          watch.py: the Elasticsearch pull (urgent alerts -> dashboard + Web Push);
@@ -34,7 +36,8 @@ LOGS = os.path.join(NM, "logs")
 STATE = os.path.join(RC.STATE, "scheduler.json")
 JOBS = {
     "watch": [PY, os.path.join(NM, "watch.py")],
-    "stream": [PY, os.path.join(NM, "stream.py")],  # long-running: Suricata / syslog / host alerts every 15 s (exits hourly, restarted here)
+    "stream": [PY, os.path.join(NM, "stream.py")],
+    "gpu": [PY, os.path.join(NM, "gpustat.py")],  # long-running: GPU use of the two local models every 5 s, one row a minute (exits hourly, restarted here)  # long-running: Suricata / syslog / host alerts every 15 s (exits hourly, restarted here)
     "review": [PY, os.path.join(NM, "review.py"), "--trigger", "schedule"],
     "weekly": [os.path.join(NM, "weekly_rebuild.sh")],
     "unifi": [PY, os.path.join(NM, "unifi.py"), "--prewarm"],  # keeps the UniFi cache in netmon.db warm so ranges/snapshots skip the slow cloud calls
@@ -87,6 +90,11 @@ def reap():
                 _save(st)
 
 
+def _gpu_wanted():
+    import shutil
+    return bool(shutil.which("nvidia-smi", path="/usr/bin:/usr/local/bin:/usr/local/nvidia/bin"))
+
+
 def _kube_wanted():
     try:
         import integrations
@@ -126,6 +134,11 @@ def tick(now=None):
     if not (sp and sp.poll() is None) and (now - float(s.get("stream_at") or 0) >= 60 or s.get("stream_rc") == 0):
         if start("stream", why="(continuous)"):
             s["stream_at"], s["stream_rc"] = now, None
+    # GPU sampler (gpustat.py, AI pipeline monitoring > GPU use): one long-running process like stream, only on a host with nvidia-smi
+    gp = running.get("gpu")
+    if not (gp and gp.poll() is None) and now - float(s.get("gpu_at") or 0) >= 60 and _gpu_wanted():
+        if start("gpu", why="(continuous)"):
+            s["gpu_at"] = now
     wp = watch_period()
     wst = (now // wp) * wp
     if float(s.get("watch_at") or 0) < wst:

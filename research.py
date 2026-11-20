@@ -136,6 +136,27 @@ class Research(aijob.Job):
                 self.errors.append(f"research batch {b // BATCH + 1}: {str(e)[:200]}")
             finally:
                 self.record_batch(batch, before)
+        try:
+            self.store_iocs()
+        except Exception as e:  # noqa: BLE001 - the notes are already stored
+            self.errors.append(f"researched artifacts not stored: {str(e)[:200]}")
+
+    def store_iocs(self):
+        """The indicators found in the pages this research read -> the researched event's researched artifacts (corr_llm.db event_iocs)."""
+        iocs = getattr(self, "iocs", None)
+        if not iocs:
+            return
+        import sqlite3
+        c = sqlite3.connect(os.path.join(aijob.STATE, "corr_llm.db"), timeout=10)
+        try:
+            with c:
+                c.execute("""CREATE TABLE IF NOT EXISTS event_iocs (eid TEXT, kind TEXT, value TEXT, src_url TEXT, wid TEXT, hunt TEXT, syn TEXT,
+                             model TEXT, ts REAL, PRIMARY KEY (eid, kind, value))""")
+                c.executemany("INSERT OR REPLACE INTO event_iocs (eid, kind, value, src_url, wid, hunt, syn, model, ts) VALUES (?,?,?,?,?,?,?,?,?)",
+                              [(self.args.event, a["kind"], a["value"], a["src_url"], "", json.dumps(a["hunt"]), "{}",
+                                f"{self.target.get('model')} (research)", time.time()) for a in iocs[:30]])
+        finally:
+            c.close()
 
     def record_batch(self, batch, before):
         """Tokens and cost of one research batch, split evenly over its events (exact when one event is researched)."""

@@ -895,6 +895,23 @@ class TestOps(StoreCase):
         self.assertEqual(b.execute("SELECT key FROM acks").fetchall(), [("x",)])
         b.close()
 
+    def test_daily_backup_made_once_per_day(self):
+        """The pipeline's backup (daily=True) is made once a day; later runs leave today's copy alone.
+        REQ: OPS-04
+        """
+        store.ack_set("issue", "a", True)
+        dest = store.backup(self.tmp, daily=True)
+        m0 = os.path.getmtime(dest)
+        store.ack_set("issue", "b", True)
+        os.utime(dest, (m0 - 100, m0 - 100))
+        again = store.backup(self.tmp, daily=True)
+        self.assertTrue(again.endswith("(already made today)"))
+        self.assertEqual(os.path.getmtime(dest), m0 - 100)  # not rewritten
+        store.backup(self.tmp)  # by hand (store.py backup): always a fresh copy
+        b = sqlite3.connect(dest)
+        self.assertEqual(sorted(r[0] for r in b.execute("SELECT key FROM acks")), ["a", "b"])
+        b.close()
+
     def test_export_writes_legacy_files(self):
         """export writes the legacy JSON files back out with the stored content.
         REQ: OPS-04

@@ -90,6 +90,17 @@ class WebLookup(unittest.TestCase):
         got = corr_llm._sources({"sources": ["W1", "W9"], "reason": "owned by B [W2]"}, logw)
         self.assertEqual([s["url"] for s in got], ["https://a.example/1", "https://b.example/2"])
 
+    def test_grouped_citations_in_reason(self):
+        """REQ: WEB-08 - models cite several pages as [W1, W2] with no "sources" list; those pages must still be kept."""
+        self.assertEqual(corr_llm.cited_wids("attack [W1, W4, W5] seen [W2] and [W3 and W6]; list [1, 2]"),
+                         ["W1", "W4", "W5", "W2", "W3", "W6"])
+        logw = corr_llm._web_logger("ids|t", [], "m", "unit-test")
+        logw.seen.update({"https://a.example/1": "A", "https://b.example/2": "B", "https://c.example/3": "C"})
+        for u in logw.seen:
+            corr_llm._web_id(logw, u)
+        got = corr_llm._sources({"reason": "hijacked [W1, W3]."}, logw)
+        self.assertEqual([(s["id"], s["url"]) for s in got], [("W1", "https://a.example/1"), ("W3", "https://c.example/3")])
+
     def test_broken_plan_json_keeps_good_lookups(self):
         """REQ: WEB-08"""
         t = '{"queries": [{"source": "zeek", "why": "a"}, {"source": "suricata", "why": "b" true}], "web": [{"search": "x", "why": "y"}]}'
