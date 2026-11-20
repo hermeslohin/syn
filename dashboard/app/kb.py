@@ -674,6 +674,50 @@ def add_host_note(subject_spec, text, category="other", author="", model="", via
         return cur.lastrowid
 
 
+IOC_SOURCES_KEPT = 4  # reports listed on one indicator note (newest first)
+
+
+def add_ioc_notes(iocs, model="", via="event reviewer"):
+    """Researched artifacts -> artifact notes saying they are bad, with the threat report(s) that name them.
+    iocs: [{kind: dns|url|ip|hash, value, src_url, src_title?, hunt?}] from corr_llm._ioc_pivot / research. One AI note per
+    indicator on art:<kind>:<value> (a URL is filed on its host domain, the URL kept in the text), tagged [ioc:<kind>:<value>]:
+    a later report naming it adds its link to the same note instead of a new one. Notes a person approved or rejected are
+    left alone (add_host_note refuses). -> number of notes written."""
+    n = 0
+    for a in iocs or []:
+        kind, val, src = str(a.get("kind") or ""), str(a.get("value") or "").strip(), str(a.get("src_url") or "").strip()
+        url = ""
+        if kind == "url":
+            m = re.match(r"(?:https?|ftp)://([^/:?#]+)", val, re.I)
+            kind, url, val = "dns", val, (m.group(1) if m else "")
+        val = val.lower() if kind in ("dns", "ip", "hash") else val
+        if kind not in ("dns", "ip", "hash") or not valid_art(kind, val) or not re.match(r"https?://", src):
+            continue
+        tag, subj = f"[ioc:{kind}:{val}]", f"art:{kind}:{val}"
+        try:
+            old = [x for x in host_notes([subj]) if str(x.get("text") or "").startswith(tag)]
+            prev = old[0]["text"] if old else ""
+            srcs = [src] + [u for u in re.findall(r"https?://\S+", prev.split("Reported in:", 1)[1] if "Reported in:" in prev else "") if u.rstrip(".,;)") != src]
+            srcs = [u.rstrip(".,;)") for u in srcs][:IOC_SOURCES_KEPT]
+            m_ = re.search(r"URLs? in the reports?: (.*?)\. ", prev)
+            urls = sorted(set(m_.group(1).split(", ") if m_ else []) | set(re.findall(r"URL seen in reports: (\S+)", prev)) | ({url} if url else set()))
+            h = a.get("hunt") or {}
+            seen = ("SEEN on this network: " + f"{h.get('hits')}x in {h.get('days') or 30} days, last {h.get('last') or '?'}, devices "
+                    + ", ".join(str(x.get('ip')) for x in h.get("hosts") or []) + ".") if h.get("hits") else \
+                   (f"Not seen on this network in the {h.get('days') or 30} days before {str(h.get('checked') or '')[:10] or 'the check'}." if h and not h.get("error") else "")
+            title = str(a.get("src_title") or "").strip()[:120]
+            text = (f"{tag} MALICIOUS: attacker infrastructure named in a threat report"
+                    + (f" (\"{title}\")" if title and len(srcs) == 1 else "") + ". Treat any contact with it as an indicator of compromise. "
+                    + ((f"URL{'s' if len(urls) > 1 else ''} in the report{'s' if len(srcs) > 1 else ''}: " + ", ".join(urls) + ". ") if urls else "")
+                    + (seen + " " if seen else "")
+                    + "Reported in: " + " ".join(srcs) + f" (found by Syn research, {via}{', ' + model if model else ''}; source-based, not verified here).")
+            add_host_note({"subject": subj}, text, "risk", author="ai", model=model, via=via, note_id=old[0]["id"] if old else None)
+            n += 1
+        except ValueError as ex:  # limit reached or a person reviewed the note: keep going with the others
+            print(f"kb: indicator note not written for {kind} {val}: {ex}", file=sys.stderr)
+    return n
+
+
 def review_host_note(note_id, decision, by):
     """Admin / defender: 'approve' (authoritative for the event reviewer and event research), 'reject' (kept, never sent to the AI) or 'clear'."""
     st = {"approve": "approved", "reject": "rejected", "clear": ""}.get(decision)

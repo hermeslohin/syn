@@ -46,6 +46,14 @@ class Extract(unittest.TestCase):
         for never in ("cdn.optimizely", "cdn.optimizely.com", "dope.console", "104.18.65.57"):
             self.assertNotIn(never, vals)
 
+    def test_lookup_pages_and_networks_are_never_indicators(self):
+        """REQ: WEB-09 - an ipinfo / hash-lookup page is not a threat report, and a network address is not a host."""
+        self.assertFalse(iocs.threat_like("2.59.21.51 IP address details", "", "https://ipinfo.io/2.59.21.51"))
+        self.assertFalse(iocs.threat_like("Malware hash registry", "", "https://hash.cymru.com/docs_whois"))
+        self.assertFalse(iocs.threat_like("2.59.21.51 IP address details", "page body: threat intelligence, abuse"[:0]))  # title only
+        vals = [a["value"] for a in iocs.extract("C2 at `45.9.148.0` and `45.9.148.21`, range `104.0.0.0`", "")]
+        self.assertEqual(vals, ["45.9.148.21"])
+
     def test_excluded_and_threat_like(self):
         """REQ: WEB-09"""
         self.assertEqual(iocs.extract("seen `cdn.optimizely.com` and `x.optimizely.com`", "", exclude=["cdn.optimizely.com"]), [])
@@ -117,10 +125,46 @@ class Pivot(unittest.TestCase):
         hit = next(a for a in got if a["value"] == "1688360.cc")
         self.assertEqual((hit["wid"], hit["hunt"]["hits"], hit["src_url"]), ("W1", 2, "https://dope.security/post/x"))
 
+    def test_indicators_get_bad_artifact_notes_with_the_report(self):
+        """REQ: WEB-09 - each researched indicator gets an artifact note: malicious, with the article(s) naming it."""
+        import kb
+        iocs_ = [{"kind": "url", "value": "https://loader-example.cc/track.js", "src_url": "https://r.example/a", "src_title": "Vendor hijacked",
+                  "hunt": {"hits": 0, "days": 30, "checked": "2026-11-20T01:00:00"}},
+                 {"kind": "ip", "value": "203.0.113.40", "src_url": "https://r.example/a", "hunt": {"hits": 2, "days": 30, "last": "b", "hosts": [{"ip": "10.20.30.5", "count": 2}]}},
+                 {"kind": "dns", "value": "not a domain", "src_url": "https://r.example/a"}]
+        self.assertEqual(kb.add_ioc_notes(iocs_, "m", "event reviewer"), 2)
+        d = kb.host_notes(["art:dns:loader-example.cc"])
+        self.assertEqual(len(d), 1)
+        self.assertTrue(d[0]["text"].startswith("[ioc:dns:loader-example.cc] MALICIOUS"))
+        self.assertIn("https://r.example/a", d[0]["text"])
+        self.assertIn("URL in the report: https://loader-example.cc/track.js.", d[0]["text"])
+        self.assertIn("Not seen on this network", d[0]["text"])
+        self.assertEqual((d[0]["category"], d[0]["author"]), ("risk", "ai"))
+        self.assertIn("SEEN on this network: 2x", kb.host_notes(["art:ip:203.0.113.40"])[0]["text"])
+        # a second report naming it: same note, both links
+        kb.add_ioc_notes([{"kind": "dns", "value": "loader-example.cc", "src_url": "https://r2.example/b"}], "m")
+        d = kb.host_notes(["art:dns:loader-example.cc"])
+        self.assertEqual(len(d), 1)
+        self.assertIn("https://r2.example/b", d[0]["text"])
+        self.assertIn("https://r.example/a", d[0]["text"])
+        # a person's verdict on the note is never overwritten by the AI
+        kb.review_host_note(d[0]["id"], "reject", "alice")
+        kb.add_ioc_notes([{"kind": "dns", "value": "loader-example.cc", "src_url": "https://r3.example/c"}], "m")
+        self.assertNotIn("r3.example", kb.host_notes(["art:dns:loader-example.cc"])[0]["text"])
+
+    def test_non_threat_pages_are_not_mined(self):
+        """REQ: WEB-09 - a vendor docs page the reviewer read does not get its domains labelled malicious."""
+        logw = corr_llm._web_logger("x", [], "m", "unit-test")
+        logw.seen["https://docs.vendor.example/cdn"] = "CDN recommendations"
+        logw.pages = {"https://docs.vendor.example/cdn": "Point `edge.partner-cdn.net` at the origin. Use `edge.partner-cdn.net` for assets."}
+        with mock.patch.object(corr_llm, "broker", side_effect=AssertionError("no hunt")):
+            self.assertEqual(corr_llm._ioc_pivot(logw, {"label": "x"}), [])
+
     def test_hunt_failure_still_lists_indicators(self):
         """REQ: WEB-09"""
         logw = corr_llm._web_logger("x", [], "m", "unit-test")
         logw.pages = {"https://r.example/a": "C2 `evil-c2.top` used"}
+        logw.seen["https://r.example/a"] = "Campaign report: new C2 infrastructure"
 
         def brk(*a, **k):
             raise RuntimeError("broker down")

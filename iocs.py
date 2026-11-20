@@ -120,7 +120,7 @@ def extract(text, page_url="", exclude=(), limit=MAX_IOCS):
                 add("dns", d, strong)
         for ip in _IP.findall(src):
             try:
-                if ipaddress.ip_address(ip).is_global and ip not in skip:
+                if ipaddress.ip_address(ip).is_global and ip not in skip and not ip.endswith((".0", ".255")):  # a network, not a host
                     add("ip", ip, strong)
             except ValueError:
                 pass
@@ -140,6 +140,22 @@ def extract(text, page_url="", exclude=(), limit=MAX_IOCS):
     return [{"kind": a["kind"], "value": a["value"], "strong": a["strong"]} for a in out if a["strong"] or a["n"] >= 2 or a["kind"] in ("ip", "hash", "url")][:limit]
 
 
-def threat_like(title, snippet=""):
-    """A search result that reads like a threat report (worth reading in full for its indicators)."""
+# lookup / reputation / scanner sites: their pages list addresses, ranges and hashes of whatever was looked up - never IOCs
+LOOKUP_SITES = {"ipinfo.io", "hash.cymru.com", "team-cymru.com", "pcrisk.com", "malwaretips.com", "virustotal.com", "abuseipdb.com",
+                "urlscan.io", "shodan.io", "censys.io", "greynoise.io", "talosintelligence.com", "whois.com", "who.is", "ipvoid.com",
+                "urlvoid.com", "scamadviser.com", "sitecheck.sucuri.net", "mxtoolbox.com", "robtex.com", "bgp.he.net", "spur.us",
+                "threatminer.org", "otx.alienvault.com", "hybrid-analysis.com", "any.run", "joesandbox.com", "ipqualityscore.com",
+                "cleantalk.org", "dnslytics.com", "securitytrails.com", "viewdns.info", "ip-api.com", "iplocation.net", "domaintools.com"}
+
+
+def lookup_site(url):
+    h = _host(url)
+    return any(h == d or h.endswith("." + d) for d in LOOKUP_SITES)
+
+
+def threat_like(title, snippet="", url=""):
+    """A page / search result that reads like a threat report (worth reading in full for its indicators): judged on the title
+    and search snippet only - a page body (an ipinfo or scanner page) mentions "threat" without being a report."""
+    if url and lookup_site(url):
+        return False
     return bool(THREAT_WORDS.search(f"{title} {snippet}"))

@@ -194,7 +194,7 @@ class Job:
         """Indicators named in a fetched page (iocs.extract) + whether this network ever touched them (es_context.hunt).
         Kept per job in self.iocs; research.py stores them on the researched event as researched artifacts."""
         import iocs as IOC, es_context
-        if not IOC.threat_like(page.get("title") or "", str(page.get("text") or "")[:3000]):
+        if not IOC.threat_like(page.get("title") or "", "", page.get("url") or ""):
             return []
         self.__dict__.setdefault("iocs", [])
         have = {x["value"] for x in self.iocs}
@@ -207,7 +207,14 @@ class Job:
             h = H.get(x["value"]) or {"hits": 0}
             out.append({"kind": x["kind"], "value": x["value"], "seen_here_30d": h.get("hits", 0), "first": h.get("first"), "last": h.get("last"),
                         "devices": h.get("hosts") or [], "logs": h.get("logs") or []})
-            self.iocs.append({"kind": x["kind"], "value": x["value"], "src_url": page.get("url") or "", "wid": "", "hunt": {**h, "days": 30}, "syn": {}})
+            self.iocs.append({"kind": x["kind"], "value": x["value"], "src_url": page.get("url") or "", "src_title": str(page.get("title") or "")[:200],
+                              "wid": "", "hunt": {**h, "days": 30}, "syn": {}})
+        try:  # artifact notes: each indicator is bad, with the report that names it (kb.db in the dashboard state dir)
+            os.environ.setdefault("STATE_DIR", STATE)
+            import kb
+            kb.add_ioc_notes(self.iocs[-len(out):], self.target.get("model") or "", "event research")
+        except Exception as e:  # noqa: BLE001 - the page and its hunt are still returned
+            self.errors.append(f"indicator notes not written: {str(e)[:150]}")
         return out
 
     def t_cite(self, a):

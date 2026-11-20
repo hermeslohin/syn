@@ -274,7 +274,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_gpustat.py` | 2 | Unit tests for gpustat.py: GPU busy % per local model (AI pipeline monitoring > GPU use). (LLM-05) |
 | `tests/unit/test_host_baseline_asof.py` | 2 | hosts.as_of / first-seen minutes: a time range collected after the review job still reports the first-seen host (POS-21) |
 | `tests/unit/test_ids_verdicts.py` | 6 | Unit tests for the IDS events Verdict column: GET /api/verdicts (server.event_verdicts) and the tables that show it. (POS-22, POS-23) |
-| `tests/unit/test_ioc_pivot.py` | 7 | Unit tests for research -> indicator hunt: iocs.extract, es_context.hunt, corr_llm._ioc_pivot / researched artifacts. (WEB-09) (WEB-09) |
+| `tests/unit/test_ioc_pivot.py` | 10 | Unit tests for research -> indicator hunt: iocs.extract, es_context.hunt, corr_llm._ioc_pivot / researched artifacts. (WEB-09) (WEB-09) |
 | `tests/unit/test_issues.py` | 28 | Unit tests for dashboard/app/issues.py (per-snapshot Fix-list checks and cross-snapshot tracking). (CFG-05, ISS-01, ISS-02, OPS-05, OPS-06, RISK-03) |
 | `tests/unit/test_issues_k8s_cis.py` | 3 |  (KUBE-06, KUBE-10) |
 | `tests/unit/test_issues_race.py` | 2 | Regression: the Fix list (fixlist.sync / issues._eval) runs in request threads and background jobs at once; the (OPS-05) |

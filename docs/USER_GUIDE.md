@@ -303,6 +303,14 @@ on **Alerts**. Each row shows:
 The list header sums it up (*2 seen in this network* or *none seen in this network*) and opens by itself when
 anything was seen.
 
+**Each indicator also gets an artifact note.** Syn files a note on the domain, IP or hash saying it is **malicious**
+(attacker infrastructure named in a threat report), whether it was seen on your network, and a **link to every
+article that named it**. Tap 📝 on the artifact to read it; it is also on **Devices → Notes**. A later report naming
+the same indicator adds its link to the same note. The AI reads these notes on every later event that shows the
+indicator, so if a device contacts it next month the verdict starts from the report. If a note is wrong, **reject**
+it (admins and defenders): the AI never changes a note a person approved or rejected. Only real threat reports are
+used: IP / hash lookup pages, scanner and reputation sites and vendor documentation never produce these notes.
+
 **How to read it.** The researched artifacts answer the question the report's headline cannot: *did the attack reach
 you?* Suppose a phone looked up a legitimate analytics service, and a report says that service was hijacked to serve
 a malicious script from `loader-example.cc`:

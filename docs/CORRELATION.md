@@ -651,9 +651,12 @@ web look-ups ([W1] [W2] ...) -> read the threat reports -> extract indicators ->
    -> <ioc_hunt> block to the event reviewer -> label + reason -> researched artifacts on the event
 ```
 
-**1. Which pages are read.** Every page the reviewer read during its look-ups, plus up to **2** search results
-(`IOC_READS`) whose title or snippet reads like a threat report (malware, attack, hijack, compromise, IOC, C2,
-skimming, supply chain ...). Vendor documentation and reputation pages are not read. Reads go through the same web
+**1. Which pages are read.** Only threat reports: pages whose **title** (or search snippet) reads like one (malware,
+attack, hijack, compromise, IOC, C2, skimming, supply chain ...). That covers the pages the reviewer read during its
+look-ups plus up to **2** more search results (`IOC_READS`). A page body does not count, and IP / hash / URL lookup,
+reputation and scanner sites (ipinfo.io, Team Cymru, VirusTotal, AbuseIPDB, urlscan, pcrisk, malwaretips ...,
+`iocs.LOOKUP_SITES`) are never mined: what they list is whatever was looked up, not attacker infrastructure. Vendor
+documentation is not mined either. Reads go through the same web
 backend and the shared **Syn web cache** (key `i:<url>`, up to 20,000 characters), are logged in `web_queries`
 (*why: read the threat report for its indicators*) and audited like any other look-up.
 
@@ -672,7 +675,7 @@ written as code, in a table or defanged is *strong* and always kept; a plain-pro
 (`track.js`, `card.php`), names whose last label is not a real top-level domain (`iocs_tlds.txt`, the IANA list -
 so `vendor.console` is ignored), well-known platforms (Google, Microsoft, GitHub, Cloudflare, AWS, social networks
 ...), the publisher's own site, the event's own domains and IPs, the pages already cited, private / non-routable
-addresses, and anything a sentence of the report itself clears (*"... resolves to 203.0.113.7. These are delivery
+addresses, network addresses (`x.x.x.0`, `x.x.x.255`), and anything a sentence of the report itself clears (*"... resolves to 203.0.113.7. These are delivery
 addresses, not malicious indicators"*).
 
 **3. The hunt** (host broker `POST /iochunt` -> `es_context.hunt`, at most 120 per hour; each indicator's result is
@@ -715,9 +718,29 @@ kind and value, *seen here N× in 30 days* (red; devices and last time) or *not 
 earlier Syn events name it, the report it came from (`[W2]`, linked), the 📝 notes and 🔎 search buttons, and the
 model flare. The list opens by itself when anything was seen here.
 
+**6. Artifact notes: the indicator is bad, and here is the article.** Every indicator also gets an AI note on its
+artifact (`kb.add_ioc_notes`, subject `art:dns:<domain>` / `art:ip:<ip>` / `art:hash:<hash>`; a URL is filed on its
+host domain and kept in the text), category **risk**, tagged `[ioc:<kind>:<value>]`:
+
+```
+[ioc:dns:loader-example.cc] MALICIOUS: attacker infrastructure named in a threat report. Treat any contact with it as
+an indicator of compromise. URLs in the reports: https://loader-example.cc/script.js, https://loader-example.cc/track.js.
+Not seen on this network in the 30 days before 2026-11-20. Reported in: https://report-one.example/post
+https://report-two.example/blog (found by Syn research, event reviewer, <model>; source-based, not verified here).
+```
+
+One note per indicator: a later report naming it adds its link to the same note (newest first, up to 4,
+`IOC_SOURCES_KEPT`) and refreshes the *seen / not seen* line. A note a person **approved** or **rejected** is never
+changed by the AI. These notes are what makes the finding last beyond one event: they show under **📝** on the
+artifact (here, in the Open events window's *notes on this event's artifacts* and on Devices → Notes), and the event
+reviewer reads them on **every later event** that shows the same domain, IP or hash, so a device that contacts the
+infrastructure next month is judged with the report already in hand. Turned off with the other AI host notes
+(`NETMON_REVIEW_HOST_NOTES=off`).
+
 **Event research (Send to research)** does the same on every page its model reads: `web_fetch` returns the page with
 an `indicators` list (`seen_here_30d`, devices, first / last, logs) so the researcher can `es_search` the ones seen
-here, and the run stores them on the researched event (`event_iocs`, model marked *(research)*).
+here, and the run stores them on the researched event (`event_iocs`, model marked *(research)*) and writes the same
+artifact notes (via *event research*).
 
 | Limit | Value | Where |
 |---|---|---|

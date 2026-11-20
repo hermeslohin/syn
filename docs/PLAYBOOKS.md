@@ -485,6 +485,7 @@ Research is how Syn tells them apart. Each layer below adds evidence to the even
 | Related events | Did other devices or other detections join in at the same time? | **Related** count, correlated artifacts |
 | Web sources | *Why* is a legitimate CDN listed? (a report: the vendor was hijacked to serve a malicious script) | 🌍 **Web sources**, linked `[W1]` `[W2]` in the reason |
 | **Researched artifacts** | Did the attack *reach this network*? Every attacker domain, URL, IP and hash the report names, checked in 30 days of logs | 🔬 **Researched artifacts**, *seen here* / *not seen here* |
+| Indicator notes | Is this domain / IP / hash known bad, and which article says so? (kept for every later event) | 📝 on the artifact, Devices → Notes |
 | Your notes | What is this device, who uses it, is this expected? | 📝 host and artifact notes |
 
 **Steps**
@@ -525,8 +526,11 @@ Research is how Syn tells them apart. Each layer below adds evidence to the even
 6. **Record what you learned.**
    - Block the attacker indicators on your DNS filter or gateway even when nothing was seen here: it costs nothing
      and stops a later visit.
-   - Add a 📝 note on the vendor domain (e.g. *"hijacked in campaign X; attacker indicators hunted 30 days, none seen
-     here"*). The event reviewer reads it on every later hit on that domain, so repeats are labelled the same way.
+   - Syn has already filed a 📝 **malicious** note on each attacker indicator, with links to the articles. Read one
+     to confirm it is right (reject it if not); approve it to make it authoritative.
+   - Add your own 📝 note on the **vendor** domain (e.g. *"hijacked in campaign X; attacker indicators hunted 30 days,
+     none seen here"*). The event reviewer reads both on every later hit, so repeats are labelled the same way, and a
+     device that reaches the attacker's infrastructure later is judged with the report already in hand.
    - Check the event off only once the picture is clear. If the AI later re-reviews the event and finds something
      seen here, it reopens.
 

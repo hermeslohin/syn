@@ -1917,7 +1917,7 @@ def _ioc_pivot(on_web, anchor):
     pages = {u: t for u, t in (getattr(on_web, "pages", {}) or {}).items() if u not in done}
     reads = on_web.__dict__.setdefault("ioc_reads", [0])
     for u, title, snip in getattr(on_web, "rows", []) or []:
-        if reads[0] >= IOC_READS or u in done or u in pages or not u.startswith(("http://", "https://")) or not IOC.threat_like(title, snip):
+        if reads[0] >= IOC_READS or u in done or u in pages or not u.startswith(("http://", "https://")) or not IOC.threat_like(title, snip, u):
             continue
         reads[0] += 1
         t0 = time.time()
@@ -1938,10 +1938,13 @@ def _ioc_pivot(on_web, anchor):
     new = []
     for u, text in pages.items():
         done.add(u)
+        title = str(on_web.seen.get(u) or "")
+        if not IOC.threat_like(title, "", u):  # vendor docs, IP / hash lookup and scanner pages: what they list is not attacker infrastructure
+            continue
         for a in IOC.extract(text, u, exclude=known):
             if a["value"] not in have and not (a["kind"] == "ip" and _web_private(a["value"])):
                 have.add(a["value"])
-                new.append({"kind": a["kind"], "value": a["value"], "src_url": u, "wid": _web_id(on_web, u)})
+                new.append({"kind": a["kind"], "value": a["value"], "src_url": u, "src_title": title[:200], "wid": _web_id(on_web, u)})
     new = new[:IOC.MAX_IOCS]
     if not new:
         return []
@@ -1955,6 +1958,11 @@ def _ioc_pivot(on_web, anchor):
         host = (_re.match(r"\w+://([^/:?#]+)", a["value"]) or [None, a["value"]])[1] if a["kind"] == "url" else a["value"]
         a["syn"] = S.get(host) or {}
     on_web.__dict__.setdefault("iocs", []).extend(new)
+    if HOST_NOTES:  # each indicator gets an artifact note: bad, with the report(s) that name it (Devices > Notes, 📝 on the artifact)
+        try:
+            _kb().add_ioc_notes(new, getattr(on_web, "mname", "") or "", "event reviewer")
+        except Exception as e:  # noqa: BLE001 - the hunt result still goes to the model
+            print(f"corr_llm: indicator notes not written: {type(e).__name__}: {e}", file=sys.stderr)
     seen_n = sum(1 for a in new if (a["hunt"] or {}).get("hits"))
     return [f'<ioc_hunt indicators="{len(new)}" seen_here="{seen_n}">\n' + "\n".join(_ioc_line(a) for a in new) + "\n</ioc_hunt>"]
 
@@ -2018,7 +2026,7 @@ def _web_logger(aid, ids, mname, purpose="event-review"):
                              "candidates": list(ids or [])[:20]},
                      target=aid, message=(f"event reviewer {'searched the web for' if kind == 'search' else 'read the page'} {str(q or '')[:200]}"
                                           + (f" - failed: {str(err)[:120]}" if err else f" - {(res or {}).get('results') or 0} result(s){' (cached)' if cached else ''}")))
-    logw.seen, logw.n = {}, 0
+    logw.seen, logw.n, logw.mname = {}, 0, mname
     return logw
 
 
