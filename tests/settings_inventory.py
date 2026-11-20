@@ -59,7 +59,7 @@ SETTINGS = {
     "llm.esqueries": ("AI pipeline configuration > Event reviewer look-ups: Elasticsearch", ["/api/llm/esqueries"], ["corr_llm.set_es_queries"], ["SET-25", "SET-66"]),
     "llm.websearch": ("AI pipeline configuration > Event reviewer look-ups: web search", ["/api/llm/websearch"], ["corr_llm.set_web_search"], ["SET-25", "SET-66"]),
     "llm.lookupplan": ("AI pipeline configuration > Event reviewer look-ups first", ["/api/llm/lookupplan"], ["corr_llm.set_lookup_plan"], ["SET-24", "SET-66"]),
-    "llm.webcache": ("AI pipeline configuration > netmon web cache (on/off, days kept, clear)", ["/api/llm/webcache"], ["corr_llm.set_web_cache"], ["WEB-08", "SET-66"]),
+    "llm.webcache": ("AI pipeline configuration > Syn web cache (on/off, days kept, clear)", ["/api/llm/webcache"], ["corr_llm.set_web_cache"], ["WEB-08", "SET-66"]),
     "llm.chat_es": ("Ask AI: may the chat search Elasticsearch", ["/api/llm/chat-es"], ["corr_llm.set_chat_es"], ["SET-23", "SET-66", "SET-69"]),
     # ---- per user ----
     "push.prefs": ("Account > Notifications (which devices alert me)", ["/api/push/prefs"], [], ["STO-07", "SET-68"]),

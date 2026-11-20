@@ -1,6 +1,6 @@
-# netmon testing guide
+# Syn testing guide
 
-How netmon is tested: what the unit and end-to-end (E2E) suites cover, how they are isolated from the live system, how to run them, and how to add tests.
+How Syn is tested: what the unit and end-to-end (E2E) suites cover, how they are isolated from the live system, how to run them, and how to add tests.
 
 - **Requirements ↔ tests mapping:** [TEST_TRACEABILITY.md](TEST_TRACEABILITY.md). It is generated, so don't edit it by hand.
 - **Requirement catalog:** `tests/requirements.py`. Every requirement has an ID (`AUTH-02`, `AC-03`, …) and the doc it comes from (README, ACCESS_CONTROL, RISK_SCORING, CORRELATION, SETUP, USER_GUIDE).
@@ -39,7 +39,7 @@ Every `./ship.sh "msg"` runs the test gate as **step 0**, before the security sc
 
 ## 2. Isolation: the tests never touch live data
 
-Every test module imports `tests/_env.py` first, before any netmon module. It points the environment at a temporary directory:
+Every test module imports `tests/_env.py` first, before any Syn module. It points the environment at a temporary directory:
 
 | Variable | Test value | Why |
 |---|---|---|
@@ -100,7 +100,7 @@ Unit tests run in the same process as the module they test, one module at a time
 
 ## 4. End-to-end tests (`tests/e2e/`)
 
-E2E tests run netmon the way production does: as separate processes that talk over the network.
+E2E tests run Syn the way production does: as separate processes that talk over the network.
 
 **Harness** (`tests/e2e/harness.py`):
 - `Server` starts the real `dashboard/app/server.py` with:
@@ -240,7 +240,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `llm.esqueries` | AI pipeline configuration > Event reviewer look-ups: Elasticsearch | `/api/llm/esqueries` | SET-25, SET-66 | 3 | 8 |
 | `llm.websearch` | AI pipeline configuration > Event reviewer look-ups: web search | `/api/llm/websearch` | SET-25, SET-66 | 3 | 8 |
 | `llm.lookupplan` | AI pipeline configuration > Event reviewer look-ups first | `/api/llm/lookupplan` | SET-24, SET-66 | 1 | 8 |
-| `llm.webcache` | AI pipeline configuration > netmon web cache (on/off, days kept, clear) | `/api/llm/webcache` | WEB-08, SET-66 | 9 | 8 |
+| `llm.webcache` | AI pipeline configuration > Syn web cache (on/off, days kept, clear) | `/api/llm/webcache` | WEB-08, SET-66 | 9 | 8 |
 | `llm.chat_es` | Ask AI: may the chat search Elasticsearch | `/api/llm/chat-es` | SET-23, SET-66, SET-69 | 2 | 15 |
 | `push.prefs` | Account > Notifications (which devices alert me) | `/api/push/prefs` | STO-07, SET-68 | 35 | 5 |
 

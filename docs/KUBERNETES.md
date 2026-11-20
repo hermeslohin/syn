@@ -1,6 +1,6 @@
 # Kubernetes monitoring
 
-netmon can watch one or more Kubernetes clusters. It uses two separate, read-only paths:
+Syn can watch one or more Kubernetes clusters. It uses two separate, read-only paths:
 
 | Path | What it reads | Needs | Feeds |
 |---|---|---|---|
@@ -10,7 +10,7 @@ netmon can watch one or more Kubernetes clusters. It uses two separate, read-onl
 The two paths are independent. A cluster without the Elastic Agent still gets the CIS benchmark, the map and the image
 checks. A cluster without an API account still gets the log, event and alert monitoring.
 
-netmon never changes a cluster. It does not read secrets, ConfigMaps or pod logs through the API (logs come only from
+Syn never changes a cluster. It does not read secrets, ConfigMaps or pod logs through the API (logs come only from
 Elasticsearch), and it cannot exec into pods.
 
 ## Setup
@@ -27,7 +27,7 @@ Add the Elastic Agent **Kubernetes** integration to the cluster's Fleet policy w
 kube-state-metrics is optional. When it is missing, the *Security Onion data coverage* box lists the `state_*` data
 sets as errors, and the nightly run reports them once.
 
-Elasticsearch documents from Kubernetes carry no cluster name, so netmon attributes each document to the cluster that
+Elasticsearch documents from Kubernetes carry no cluster name, so Syn attributes each document to the cluster that
 owns the node that sent it. For that matching to work, the cluster also needs an API account (next section).
 
 ### Read-only API account (per cluster)
@@ -58,7 +58,7 @@ owns the node that sent it. For that matching to work, the cluster also needs an
 The token is write-only: it is stored on the server and never shown again. The API server certificate is always
 verified. Each configured cluster has its own card, and **Remove cluster** deletes the cluster and its token.
 
-## What netmon checks
+## What Syn checks
 
 ### From Elasticsearch (`k8s.py`)
 

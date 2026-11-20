@@ -1,4 +1,4 @@
-# How netmon connects the dots
+# How Syn connects the dots
 
 This page explains three features that work together: **admin-access monitoring**, **event correlation** with a
 **local-LLM review**, and the dashboard tools for working through the results (drill-down, Related column,
@@ -129,7 +129,7 @@ immediately and are handed to the event reviewer as "known artifacts" of each ev
 
 ## Profiles: accounts and frequent IPs
 
-Every correlation pass also records, without any model: the accounts seen in endpoint logins, auth failures, sudo, account changes, admin sessions and suspicious processes (**Network → Users**, `accounts.py`), and how often each IP appears in correlated events, as source or destination, with the accounts, processes and DNS names named in those events. From that it keeps host notes (category *behavior*, tagged `[profile:ip]` / `[profile:users]`, author netmon) up to date for the newest report: "frequent" is 5+ events for an internal IP and 3+ for an external one, top 25. The event reviewer reads these as `ai_note`s. Each artifact stays with the IP it belongs to: processes, files and accounts count only for the event's single source host (a host finding's source is the host it was read on; any other IP in it, e.g. "from 10.0.0.5", is a peer), DNS names for the single source or single destination, and an event naming several hosts on one side adds no artifacts to any of them. They are counts, not verdicts; delete a note on the Notes page and it is rewritten next pass if still true.
+Every correlation pass also records, without any model: the accounts seen in endpoint logins, auth failures, sudo, account changes, admin sessions and suspicious processes (**Network → Users**, `accounts.py`), and how often each IP appears in correlated events, as source or destination, with the accounts, processes and DNS names named in those events. From that it keeps host notes (category *behavior*, tagged `[profile:ip]` / `[profile:users]`, author `netmon`) up to date for the newest report: "frequent" is 5+ events for an internal IP and 3+ for an external one, top 25. The event reviewer reads these as `ai_note`s. Each artifact stays with the IP it belongs to: processes, files and accounts count only for the event's single source host (a host finding's source is the host it was read on; any other IP in it, e.g. "from 10.0.0.5", is a peer), DNS names for the single source or single destination, and an event naming several hosts on one side adds no artifacts to any of them. They are counts, not verdicts; delete a note on the Notes page and it is rewritten next pass if still true.
 
 ## 3. Correlation review (decision model + event reviewer model)
 
@@ -259,7 +259,7 @@ flowchart LR
 ### Decision model: clef
 
 Cloudflare **clef** is a "System One" decision model: it writes no text, it returns the probability of *yes* for a
-typed question. netmon asks it only *related?*, once per candidate link.
+typed question. Syn asks it only *related?*, once per candidate link.
 
 | | clef (default) | clef-flash |
 |---|---|---|
@@ -310,10 +310,10 @@ Requirements:
   data never leaves the host.
 
 Pick how it runs on **AI pipeline configuration → Decision model server → Backend** (admins). The dashboard reaches the host through
-the host broker (`POST /clef`, `clef_server.py`); settings are stored in the netmon database (document
+the host broker (`POST /clef`, `clef_server.py`); settings are stored in the Syn database (document
 `clef_server`), and `CLEF_*` environment variables override them.
 
-| Backend | What netmon manages | Endpoint |
+| Backend | What Syn manages | Endpoint |
 |---|---|---|
 | **Kubernetes deployment** (default) | a model deployment named `clef` in namespace `default` (SGLang), via `kubectl`: status, replicas, image, served model, recent log; Stop/Start scale it to 0/1 replicas, Restart replaces the pod | loopback NodePort `http://127.0.0.1:30891` |
 | **Host service** | systemd user unit `netmon-clef` (`clef.sh`, llama.cpp `llama-server`): model file, runtime binary, parallel slots, context, batch, port, Save & restart, start / stop, start at boot, recent log | `http://127.0.0.1:8091` |
@@ -327,7 +327,7 @@ review worker tries `/health` 3 times before it pauses reviews with "decision mo
 
 **Standing up the host service** (the same steps are on the AI pipeline pages under *Stand-up instructions*):
 
-1. Install a llama.cpp build whose `llama-server` supports System One, with GPU support. netmon looks for it at
+1. Install a llama.cpp build whose `llama-server` supports System One, with GPU support. Syn looks for it at
    `CLEF_SERVER`, on the `PATH` and in the folders listed in `CLEF_SERVER_DIRS` (check: `llama-server --version`).
 2. Download a model into `~/models` (or a folder listed in `CLEF_MODELS_DIR`):
    ```bash
@@ -386,7 +386,7 @@ cloud provider meant for the occasional on-request research will hit its cap qui
 The local server is itself an AI pipeline configuration → **AI providers** row: an admin can disable it or set its calls-per-hour
 cap there, same as any other provider (no key or URL to enter - those come from `NETMON_LLM_URL` and the live
 model list). Besides the local server, the event reviewer can use any provider an admin adds on AI pipeline configuration > **AI
-providers** (`llm_providers.py`, stored in the netmon database (`netmon.db`, mode 600)). These are OpenAI-compatible
+providers** (`llm_providers.py`, stored in the Syn database (`netmon.db`, mode 600)). These are OpenAI-compatible
 (`POST {base}/chat/completions`, Bearer key) or Anthropic (`POST {base}/v1/messages`, `x-api-key`) APIs called
 directly from the dashboard container; the model choice is `api:<id>` plus the model name, and each provider has
 its own calls-per-hour cap.
@@ -582,8 +582,8 @@ decides, not the shared address.
 | **Note characters** | 6000 | total characters of notes in one review request (1,000–100,000, `context_notes.chars`), set below Notes per event; the re-check of a single link uses a third of it |
 | **Notes per event** | 7 | host + user notes the event reviewer is given for each event, 1–100 (the `llm_config` settings `context_notes`); more notes = more tokens in |
 
-The event reviewer's switch and **Max per event** are stored in the netmon database (settings document `llm_config`) (`"es_queries": {"enabled",
-"max"}`, with who changed them and when); the event research switch is part of the event research settings in the netmon
+The event reviewer's switch and **Max per event** are stored in the Syn database (settings document `llm_config`) (`"es_queries": {"enabled",
+"max"}`, with who changed them and when); the event research switch is part of the event research settings in the Syn
 store (`es_search`). Both take effect from the next review or run.
 
 How a review works with searches on:
@@ -654,7 +654,7 @@ web look-ups ([W1] [W2] ...) -> read the threat reports -> extract indicators ->
 **1. Which pages are read.** Every page the reviewer read during its look-ups, plus up to **2** search results
 (`IOC_READS`) whose title or snippet reads like a threat report (malware, attack, hijack, compromise, IOC, C2,
 skimming, supply chain ...). Vendor documentation and reputation pages are not read. Reads go through the same web
-backend and the shared **netmon web cache** (key `i:<url>`, up to 20,000 characters), are logged in `web_queries`
+backend and the shared **Syn web cache** (key `i:<url>`, up to 20,000 characters), are logged in `web_queries`
 (*why: read the threat report for its indicators*) and audited like any other look-up.
 
 **2. What is extracted** (`iocs.py`, at most 20 per review):
@@ -735,7 +735,7 @@ configured. Requirement **WEB-09**; tests `tests/unit/test_ioc_pivot.py`.
 An event is reviewed again whenever its set of links changes (often hourly). Within 6 h (`NETMON_LOOKUP_MEMO_H`) a
 re-review gets the earlier review's look-up results again (`corr_llm.db` `lookup_memo`, with their `[W]` ids so
 citations still resolve) instead of a new planning step and new searches; the reviewer may still ask for more. Web
-searches and page reads are shared across all events (**netmon web cache**, `web_cache`; AI pipeline configuration → Event reviewer
+searches and page reads are shared across all events (**Syn web cache**, `web_cache`; AI pipeline configuration → Event reviewer
 look-ups: on/off, 1–30 days kept, default on / 7 days, entries + 24 h hit rate, **Clear cache**), so the same IP's
 ipinfo.io page is fetched once, not for every event naming it; such look-ups are logged with `cached = 1`. The AI pipeline monitoring
 page shows both (re-reviews reusing look-ups; web look-ups answered from cache).
@@ -793,7 +793,7 @@ configuration holds every setting. The boxes:
 
 ### Event stream (`stream.py`)
 
-Elasticsearch has no change feed, so netmon tails it: `stream.py` (a long-running child of the scheduler) reads
+Elasticsearch has no change feed, so Syn tails it: `stream.py` (a long-running child of the scheduler) reads
 **every 15 s** the documents that **arrived** (`event.ingested`) since its bookmark (`meta` `arrival:stream`), up to
 now − 60 s (two index refreshes). Windows touch end to end, so every document is read by exactly one tick however
 late it reaches Elasticsearch; a tick with a failed check keeps the bookmark and the next tick reads the span again.
@@ -959,7 +959,7 @@ The per-event-category setting (**review** / **queue** / **test** / **skip**, ca
 `alert`, the three `seg_*` severities and `high` / `medium` / `low` / `info` for the rest) decides what the event reviewer
 considers and what shows in the queue: *review* events go to the event reviewer first, *queue* events go straight to the
 queue, *test* events are listed and tagged *testing*, *skip* events are ignored. New deployments start every category in
-**test**. These live in the netmon store (`netmon.db`, `meta` table, key `review_job`, `review_cfg.py`; the event window in
+**test**. These live in the Syn store (`netmon.db`, `meta` table, key `review_job`, `review_cfg.py`; the event window in
 the cfg table, `lookback.py`), so the dashboard container and the host scheduler read the same values. Settings
 saved before the review / research split are read from the old `research_job` record, with the old *research* mode
 read as *queue*.
@@ -1211,7 +1211,7 @@ event reviewer (7.2) as an `<ai_note>` *research verdict …* on that event's ne
 
 | Setting | Default | Stored in |
 |---|---|---|
-| Event reviewer provider + model | first enabled provider with a model | `llm_config` (netmon database) → `correlation` |
+| Event reviewer provider + model | first enabled provider with a model | `llm_config` (Syn database) → `correlation` |
 | Chat provider + model | – | `llm_config` → `chat` |
 | Elasticsearch look-ups for the reviewer: on/off, max per event | off, 3 (1–20) | `llm_config` → `es_queries` |
 | Notes per event | 7 (1–100) | `llm_config` → `context_notes` |
@@ -1223,7 +1223,7 @@ event reviewer (7.2) as an `<ai_note>` *research verdict …* on that event's ne
 | Review limits: discard verdicts after N days | 0 = keep, max 3650 | `review_limits.discard_days` |
 | Review limits: classify events | off | `review_limits.classify` |
 | Decision model on/off, related threshold (0.05–0.95) | on, 0.5 | `llm_config` → `clef` |
-| Decision model server: model, runtime, parallel, context, batch, port | auto, auto, 4, 32768, 8192, 8091 | netmon database document `clef_server` (`clef_server.py`) |
+| Decision model server: model, runtime, parallel, context, batch, port | auto, auto, 4, 32768, 8192, 8091 | Syn database document `clef_server` (`clef_server.py`) |
 | Event reviewer verdicts, artifacts, classifications, searches, token logs | – | `dashboard/state/corr_llm.db` (`verdicts`, `clef`, `pair_artifacts`, `event_class` (with `owner`), `cleared_events`, `es_queries`, `review_tokens`, `review_events`; `clef_event` is retired and kept only so older determinations still show) |
 | Review job schedule and modes; event research settings, pending clicks, dismissed queue | see section 5 | store meta `review_job`, `research_job`, `research_requests`, `research_dismissed` |
 | Research notes | – | `dashboard/state/enrich.db` |

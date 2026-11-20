@@ -1,6 +1,6 @@
 # Risk scoring
 
-How netmon ranks **vulnerabilities**, **hosts** and **lateral-movement links**. The scores you see on
+How Syn ranks **vulnerabilities**, **hosts** and **lateral-movement links**. The scores you see on
 **Security → Risk**, the Overview "Highest-risk host" tile, the Network map colours, the host risk cards and the
 Lateral movement graph all come from the model described here.
 
@@ -29,8 +29,8 @@ and `dashboard/app/lateral.py` (admin sessions and link scores).
 
 | Input | Source |
 |---|---|
-| Snapshot raw data: devices, served ports, IDS signatures, beacons, threat intel, TLS, internal flows, admin access, endpoint fleet | snapshot document `data/<snapshot>` in the netmon database (collect.py) |
-| Behaviour findings and segmentation violations | `data/<snapshot>.analysis` document in the netmon database (analyze.py) |
+| Snapshot raw data: devices, served ports, IDS signatures, beacons, threat intel, TLS, internal flows, admin access, endpoint fleet | snapshot document `data/<snapshot>` in the Syn database (collect.py) |
+| Behaviour findings and segmentation violations | `data/<snapshot>.analysis` document in the Syn database (analyze.py) |
 | Open Fix-list issues, with occurrence counts across **all** snapshots | `issues.track()` plus software-scan findings |
 | Zones, device classes, allow list | network policy (More → Settings) |
 | Cleared segmentation flows (ack type `seg`) | ack store |

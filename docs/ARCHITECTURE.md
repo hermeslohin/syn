@@ -1,8 +1,8 @@
-# netmon architecture
+# Syn architecture
 
-![netmon architecture](architecture.svg)
+![Syn architecture](architecture.svg)
 
-This page describes how netmon's pieces fit together: which processes run where, what each one may touch, where
+This page describes how Syn's pieces fit together: which processes run where, what each one may touch, where
 data lives, and how an event moves from a log line to a decision. For setup see [SETUP.md](SETUP.md); for the
 correlation and AI stages in depth see [CORRELATION.md](CORRELATION.md).
 
@@ -10,7 +10,7 @@ correlation and AI stages in depth see [CORRELATION.md](CORRELATION.md).
 
 These hold everywhere in the code and explain most of the layout below.
 
-- **Read-only toward the network.** netmon never changes UniFi, the firewall or any endpoint. Elasticsearch is
+- **Read-only toward the network.** Syn never changes UniFi, the firewall or any endpoint. Elasticsearch is
   queried read-only; the one write is the append-only audit log (index `logs-netmon`).
 - **Deterministic first, AI last.** The watcher, the analysis, risk scoring and correlation proposals are plain code.
   Models only decide things the code has already narrowed down, and the expensive model (event research) runs only
@@ -26,7 +26,7 @@ These hold everywhere in the code and explain most of the layout below.
 
 ## Requirements by component
 
-netmon assumes industry-standard interfaces, not particular products. Anything that speaks the interface below can
+Syn assumes industry-standard interfaces, not particular products. Anything that speaks the interface below can
 fill the role; the names in brackets are examples that are known to work.
 
 ### Monitoring host
@@ -44,7 +44,7 @@ There are two kinds of model. Each role is chosen on **AI pipeline configuration
 
 | Role | Interface it must offer | Model requirements |
 |---|---|---|
-| **Event reviewer** (correlation event pass: event label and reason; review job) | **OpenAI-compatible Chat Completions** (`POST /v1/chat/completions`, `GET /v1/models`) or the **Anthropic Messages** API (`POST /v1/messages`). The local server (`NETMON_LLM_URL`) must also accept `temperature: 0` and **structured output** (`response_format: {"type": "json_schema", "strict": true}`) and ignore or honour `reasoning_effort`. API providers get the JSON format in the prompt instead. The review job also needs **tool / function calling**. | Instruction-tuned model that returns valid JSON reliably; 25–35B-class open-weights models or any current API model. Context ≥ 32k tokens recommended (on overflow netmon retries with fewer notes). Fast: it is called continuously, `NETMON_LLM_WORKERS` (default 2) at a time. Reasoning off or low. |
+| **Event reviewer** (correlation event pass: event label and reason; review job) | **OpenAI-compatible Chat Completions** (`POST /v1/chat/completions`, `GET /v1/models`) or the **Anthropic Messages** API (`POST /v1/messages`). The local server (`NETMON_LLM_URL`) must also accept `temperature: 0` and **structured output** (`response_format: {"type": "json_schema", "strict": true}`) and ignore or honour `reasoning_effort`. API providers get the JSON format in the prompt instead. The review job also needs **tool / function calling**. | Instruction-tuned model that returns valid JSON reliably; 25–35B-class open-weights models or any current API model. Context ≥ 32k tokens recommended (on overflow Syn retries with fewer notes). Fast: it is called continuously, `NETMON_LLM_WORKERS` (default 2) at a time. Reasoning off or low. |
 | **Event research** (only on *Send to research*) | Same APIs, with **tool / function calling** (OpenAI Chat Completions `tools`, OpenAI Responses API for OpenAI itself, or Anthropic `tool_use`) | A **reasoning-capable** model with a large context (≥ 128k tokens recommended); several tool calls per event. Capped in $ and tokens per run and per day. |
 | **Ask AI** (chat) | Same as event research | Any tool-calling chat model; a reasoning model answers more thoroughly. |
 | **Decision model** (link probabilities only) | The **System One decision API** on loopback: `POST /v1/systemone` (a state plus typed yes/no questions in, one probability per question out) and `GET /health`. The server must compute token probabilities (logits); a text-only chat server cannot serve it. | A System One decision model (Cloudflare *clef* 27B, or *clef-flash* 9B for speed): ~17 GB / ~6 GB at 4-bit plus KV cache; context ≥ 8,192 tokens per parallel slot; batch ≥ 4,096 tokens (whole input in one micro-batch). Servers known to work: llama.cpp `llama-server` and SGLang builds with System One support. |
@@ -63,7 +63,7 @@ decision model; the event reviewer's local URL may also be a LAN address. Every 
 | **Kubernetes** (one or more clusters) | optional | Elastic Agent Kubernetes integration (container logs, events, API server and pod metrics) writing to the same Elasticsearch; for the CIS benchmark, map and image checks a **read-only ServiceAccount token** per cluster (get/list/watch; no secrets, logs, exec or nodes/proxy). Image CVE scans need Docker on the monitoring host (Trivy) and HTTPS to the image registries |
 | **Threat intelligence** | optional | OpenCTI GraphQL API token (indicators in, sightings out) and/or plain feed URLs (IP / domain lists) |
 | **Web search** | optional | One of: Firecrawl (cloud or self-hosted), Brave, Tavily (API keys) or DuckDuckGo (no key) |
-| **Browsers / phones** | yes | A current browser over HTTPS; Web Push (VAPID, generated by netmon) for alerts; a reverse proxy or tunnel to reach it from outside |
+| **Browsers / phones** | yes | A current browser over HTTPS; Web Push (VAPID, generated by Syn) for alerts; a reverse proxy or tunnel to reach it from outside |
 
 ## Runtime components
 

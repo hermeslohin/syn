@@ -1,8 +1,8 @@
-# Setting up netmon
+# Setting up Syn
 
 This guide takes you from a fresh clone to a working install: a scheduled review job (collect, analyze, correlation review), an urgent watcher (the Elasticsearch pull, once per event window, default 5 min), the HTTPS dashboard with phone push alerts, and the optional **Ask AI** chat.
 
-netmon is **read-only** against your network. It queries Elasticsearch and the UniFi cloud API, and it never changes Security Onion, the gateway or any device.
+Syn is **read-only** against your network. It queries Elasticsearch and the UniFi cloud API, and it never changes Security Onion, the gateway or any device.
 
 ![architecture](architecture.svg)
 
@@ -37,7 +37,7 @@ cd ~/netmon
 `setup.sh` is safe to re-run. It never overwrites existing files. It:
 
 - checks prerequisites (`python3`, `docker`, `git`, `openssl`, `systemctl`, `/usr/bin/python3`)
-- loads the `*.example.json` templates into the netmon database as your starting settings (site, policy, host policy, known benign)
+- loads the `*.example.json` templates into the Syn database as your starting settings (site, policy, host policy, known benign)
 - creates the data folders (including `logs/`)
 - creates the host secrets file `~/.config/netmon/secrets.env` (mode 600) for your API keys
 - creates a self-signed TLS certificate and `dashboard/.env` with a first dashboard login (it prints the password) and the host broker's URL and key
@@ -47,7 +47,7 @@ cd ~/netmon
 
 ## 2. Describe your network (the Settings page)
 
-All network-specific values live in the netmon database (`dashboard/state/netmon.db`, table `cfg`), never in git and never in JSON files. `setup.sh` loads the `*.example.json` templates as a starting point; after the dashboard is running, an admin edits them as tables on **More → Settings** (tabs: Network policy, Endpoint policy, Known benign, Site). Changes save automatically as you edit (there is no Save button) and the server rejects invalid values (bad regexes, an allow rule without a source or destination, a bad network range). Jobs read the new values on their next run; a few dashboard-wide site values (crown jewels, host IPs used by risk scoring) need a dashboard restart. To load a settings file by hand: `python3 store.py cfg-import <site|policy|host_policy|known_benign> file.json`; `python3 store.py cfg-export <doc>` prints one back out.
+All network-specific values live in the Syn database (`dashboard/state/netmon.db`, table `cfg`), never in git and never in JSON files. `setup.sh` loads the `*.example.json` templates as a starting point; after the dashboard is running, an admin edits them as tables on **More → Settings** (tabs: Network policy, Endpoint policy, Known benign, Site). Changes save automatically as you edit (there is no Save button) and the server rejects invalid values (bad regexes, an allow rule without a source or destination, a bad network range). Jobs read the new values on their next run; a few dashboard-wide site values (crown jewels, host IPs used by risk scoring) need a dashboard restart. To load a settings file by hand: `python3 store.py cfg-import <site|policy|host_policy|known_benign> file.json`; `python3 store.py cfg-export <doc>` prints one back out.
 
 | Settings tab | What to put in it |
 |---|---|
@@ -86,7 +86,7 @@ Optional extras:
 | Elasticsearch API key | `~/.config/netmon/secrets.env` → `ES_API_KEY=<key>`, or **Configuration → Integrations** | Create a **read-only** key: Kibana → Stack Management → API keys, with `read` + `view_index_metadata` on `logs-*`. |
 | UniFi Site Manager API key | `~/.config/netmon/secrets.env` → `UNIFI_API_KEY=<key>`, or **Configuration → Integrations** | https://unifi.ui.com → API. Optional. |
 | Web search key (optional) | `~/.config/netmon/secrets.env` → `FIRECRAWL_API_KEY`, `BRAVE_API_KEY` or `TAVILY_API_KEY` | Only if you pick that search backend (step 7c). DuckDuckGo needs no key, nor does a self-hosted Firecrawl (the cloud key is never sent to it). |
-| AI provider API keys | **AI pipeline configuration → AI providers** on the dashboard | Stored in the netmon database (owner-only file `dashboard/state/netmon.db`, mode 600). See step 7b. |
+| AI provider API keys | **AI pipeline configuration → AI providers** on the dashboard | Stored in the Syn database (owner-only file `dashboard/state/netmon.db`, mode 600). See step 7b. |
 | Dashboard login + host broker key | `dashboard/.env` | Created by `setup.sh` (`DASH_PASS`, `NETMON_BROKER_URL`, `NETMON_BROKER_KEY`). |
 
 The secrets file is plain `KEY=value` lines, mode 600, outside the repo (set `NETMON_SECRETS` to use another path). Values saved on the dashboard's Configuration page take precedence over it. None of these are ever committed: `.gitignore` and the push gate block them.
@@ -95,7 +95,7 @@ The secrets file is plain `KEY=value` lines, mode 600, outside the repo (set `NE
 
 In Kibana **Fleet**, give your endpoint agent policies these integrations:
 
-- **Elastic Defend.** On macOS, approve the system extension and grant Full Disk Access, or protections stay off and netmon will tell you so.
+- **Elastic Defend.** On macOS, approve the system extension and grant Full Disk Access, or protections stay off and Syn will tell you so.
 - **System** (auth and syslog logs).
 - **Osquery Manager.** Import `osquery_pack.json` as a pack named `netmon-host-posture`, assign it to your policies and enable it.
 
@@ -131,7 +131,7 @@ Every user action and every AI conversation is written to the Elasticsearch inde
 2. A key for the dashboard that can only add and read entries:
    `POST _security/api_key {"name": "netmon-audit", "role_descriptors": {"netmon_audit": {"indices": [{"names": ["logs-netmon"], "privileges": ["create_doc", "read", "view_index_metadata"]}]}}}`
    (create it as a user, not with another API key: Elasticsearch refuses keys with privileges derived from an API key).
-3. Paste the `encoded` value on **More → Audit log → Change the audit key or index**, **Test**, **Save** (stored in the netmon database). `NETMON_AUDIT_ES_KEY` in `dashboard/.env` works too.
+3. Paste the `encoded` value on **More → Audit log → Change the audit key or index**, **Test**, **Save** (stored in the Syn database). `NETMON_AUDIT_ES_KEY` in `dashboard/.env` works too.
 
 Until a key works, entries wait in `dashboard/state/audit_spool.jsonl` (max 50 MB) and are sent automatically. Full reference: [AUDIT_LOG.md](AUDIT_LOG.md).
 
@@ -161,7 +161,7 @@ checked by the first run after they arrive.
 
 ### Time ranges
 
-Dashboard **time ranges** other than a review-job window are collected by the host broker (`host_broker.py`, `POST /range`: `collect.py --start --end --out dashboard/state/ranges/<id>.json` + `analyze.py --readonly`; the results are stored as `ranges/<id>…` documents in the netmon database, not as files), because the container has no Elasticsearch key. They need the broker service running (step 7); nothing else to set up.
+Dashboard **time ranges** other than a review-job window are collected by the host broker (`host_broker.py`, `POST /range`: `collect.py --start --end --out dashboard/state/ranges/<id>.json` + `analyze.py --readonly`; the results are stored as `ranges/<id>…` documents in the Syn database, not as files), because the container has no Elasticsearch key. They need the broker service running (step 7); nothing else to set up.
 
 The optional Elasticsearch look-ups of the event reviewer and of event research (AI pipeline configuration → Models; see [CORRELATION.md](CORRELATION.md)) also run through the broker (`POST /esquery`, `es_context.py`) for the same reason, and so does **Send to research** (`POST /research-event`).
 
@@ -232,7 +232,7 @@ The review job never researches events and never uses the research model. Run st
 
 ### Event research (`research.py`)
 
-Research is what happens when a person clicks **🔬 Send to research** on an event, and only then. The dashboard asks the host broker, which starts `research.py --event ID`; it uses the newest snapshot, the **research model** (AI pipeline configuration → Models) and the event research limits. The model works through read-only tools (Elasticsearch search, netmon data, notes and, if web access is on, web search / page fetch; `prompts/analyst.md` + `prompts/enrich.md`) and stores its results with `enrich.sh put` as `{"model", "notes": [{"id", "verdict", "priority", "summary", "research", "links"}], "links": [{"a", "b", "related", "confidence", "reason"}]}` in the dashboard's `state/enrich.db`. Notes show as a "✨ verdict" button next to an event's Related count. Link verdicts go in the same table as the event reviewer's and replace them; manual verdicts are kept. Tokens and cost per researched event are in `<state>/research_job.json`; conversations in `logs/research/` (the newest 60).
+Research is what happens when a person clicks **🔬 Send to research** on an event, and only then. The dashboard asks the host broker, which starts `research.py --event ID`; it uses the newest snapshot, the **research model** (AI pipeline configuration → Models) and the event research limits. The model works through read-only tools (Elasticsearch search, Syn data, notes and, if web access is on, web search / page fetch; `prompts/analyst.md` + `prompts/enrich.md`) and stores its results with `enrich.sh put` as `{"model", "notes": [{"id", "verdict", "priority", "summary", "research", "links"}], "links": [{"a", "b", "related", "confidence", "reason"}]}` in the dashboard's `state/enrich.db`. Notes show as a "✨ verdict" button next to an event's Related count. Link verdicts go in the same table as the event reviewer's and replace them; manual verdicts are kept. Tokens and cost per researched event are in `<state>/research_job.json`; conversations in `logs/research/` (the newest 60).
 
 ```bash
 /usr/bin/python3 research.py --event 'hf|...'   # research one event by hand (same as Send to research)
@@ -251,7 +251,7 @@ After a model id you can add prices in $ per million tokens, `model input output
 for cost estimates and the $ caps. **Fetch from provider** fills in the model list, **Test** lists the models
 without spending tokens. Each provider also has a calls-per-hour cap (for the single calls of the event
 reviewer) and an optional number of extra reasoning tokens. Keys are stored in
-the netmon database (`netmon.db`, mode 600), only the last 4 characters are ever shown, and they are scrubbed
+the Syn database (`netmon.db`, mode 600), only the last 4 characters are ever shown, and they are scrubbed
 from error messages. Changing a provider's type or base URL requires entering the key again. Model choices are
 stored as `api:<provider id>` or `lmstudio` plus the model name.
 
@@ -265,7 +265,7 @@ account notes the event reviewer is given with each event. A provider that is in
 server can only be disabled, never deleted).
 
 **Event research needs a reasoning-capable model** - it works through several tool calls per event (web search,
-reading pages, checking netmon data) and decides what to do next between them, which a plain chat model does
+reading pages, checking Syn data) and decides what to do next between them, which a plain chat model does
 noticeably worse at and sometimes gets stuck looping on. Pick a reasoning model (OpenAI's `o`-series / GPT-5
 family, Anthropic's extended-thinking Claude models, or a local reasoning model served by an OpenAI-compatible
 server) and give it some **extra reasoning tokens** on its provider row - 0 there effectively turns reasoning off
@@ -275,19 +275,19 @@ superficially, on a non-reasoning model.
 
 **Event research limits** (also on AI pipeline configuration): $ per research run (default 5), $ per day (default 20), tokens per research run (input + output, works without prices; default 25,000,000), research batches per run (default 10), web searches per event (default 3) and the **Web access** switch (off on a new install: no web search until an admin turns it on). A research run stops when it passes its caps, and Send to research is refused once today's research (UTC) cost the daily cap. 0 turns a cap off. The $ caps need prices on the provider's model. The **Review job** card shows the review job's status, schedule and next run, **Run now** / **Pause** and recent runs; the *Time and tokens* chart below it covers review runs, event research and Ask AI, with a cost preview for another research model.
 
-Only dashboard **Admins** can change providers, models or limits. Roles are set on the Dashboard users page ([ACCESS_CONTROL.md](ACCESS_CONTROL.md)). The settings live in the store's meta table (`review_cfg.py` for the review job, `research_cfg.py` for event research) and the netmon database (settings document `llm_config`). The event reviewer's model is remembered once chosen; if none has ever been chosen, it is Local server.
+Only dashboard **Admins** can change providers, models or limits. Roles are set on the Dashboard users page ([ACCESS_CONTROL.md](ACCESS_CONTROL.md)). The settings live in the store's meta table (`review_cfg.py` for the review job, `research_cfg.py` for event research) and the Syn database (settings document `llm_config`). The event reviewer's model is remembered once chosen; if none has ever been chosen, it is Local server.
 
 ## 7c. Web search (event research and chat)
 
-Event research and the chat search and read the web through `webtools.py`. The backend is set under **Configuration → Integrations → Web search** (stored in the netmon database, section `web`): **DuckDuckGo** (no key, the default), **Firecrawl**, **Brave** or **Tavily** (with a key). The key can also go in the host secrets file as `FIRECRAWL_API_KEY`, `BRAVE_API_KEY` or `TAVILY_API_KEY`. When Firecrawl is configured, pages are fetched through it too. Firecrawl can be the cloud (key required) or a self-hosted instance: enter its base URL in **Firecrawl URL** (key optional, and the host-file `FIRECRAWL_API_KEY` is never sent to it) and, for a private CA, paste the CA in **Firecrawl CA certificate**; TLS is always verified. A page Firecrawl reached through a redirect to a non-public address is discarded, but a self-hosted instance should also be blocked from the LAN by its own network policy. Without a working key or URL, search falls back to DuckDuckGo.
+Event research and the chat search and read the web through `webtools.py`. The backend is set under **Configuration → Integrations → Web search** (stored in the Syn database, section `web`): **DuckDuckGo** (no key, the default), **Firecrawl**, **Brave** or **Tavily** (with a key). The key can also go in the host secrets file as `FIRECRAWL_API_KEY`, `BRAVE_API_KEY` or `TAVILY_API_KEY`. When Firecrawl is configured, pages are fetched through it too. Firecrawl can be the cloud (key required) or a self-hosted instance: enter its base URL in **Firecrawl URL** (key optional, and the host-file `FIRECRAWL_API_KEY` is never sent to it) and, for a private CA, paste the CA in **Firecrawl CA certificate**; TLS is always verified. A page Firecrawl reached through a redirect to a non-public address is discarded, but a self-hosted instance should also be blocked from the LAN by its own network policy. Without a working key or URL, search falls back to DuckDuckGo.
 
 ## 7d. OpenCTI threat intelligence (optional)
 
-netmon can use an [OpenCTI](https://filigran.io/solutions/open-cti/) platform as a threat-intel source and report back to
+Syn can use an [OpenCTI](https://filigran.io/solutions/open-cti/) platform as a threat-intel source and report back to
 it. It is off until an admin fills in **More > Configuration > Integrations > OpenCTI** (settings are stored in the
 integrations document; the API token is write-only).
 
-1. In OpenCTI create a dedicated user for netmon (Settings > Security > Users, group *Connectors*) and an API token for it.
+1. In OpenCTI create a dedicated user for Syn (Settings > Security > Users, group *Connectors*) and an API token for it.
 2. On the card: enable it, enter the base URL (e.g. `https://opencti.example.com`) and the token. The certificate is always
    verified: if OpenCTI uses a private CA, paste the CA certificate (PEM). **Test** shows the version,
    user and indicator count.
@@ -314,7 +314,7 @@ Switching the integration off removes the local lists at the next run.
 
 ## 7e. Kubernetes API, read-only (optional)
 
-Container logs, Kubernetes events and API server metrics reach netmon through Security Onion (the Elastic Agent
+Container logs, Kubernetes events and API server metrics reach Syn through Security Onion (the Elastic Agent
 Kubernetes integration). That is enough for **Devices → Kubernetes**. Two further features need to read the cluster
 configuration itself: the **CIS Kubernetes benchmark** and the **Kubernetes map**. Both use one read-only account.
 
@@ -338,7 +338,7 @@ For more than one cluster, repeat the steps in each cluster and fill in the **Ku
 
 ### Threat-intel feeds
 
-**More > Configuration > Integrations > Threat-intel feeds** lists the block lists netmon downloads (every 12 h) and
+**More > Configuration > Integrations > Threat-intel feeds** lists the block lists Syn downloads (every 12 h) and
 matches against DNS look-ups, TLS server names, connections and file hashes. Per feed: on/off, URL (blank = the built-in
 default; a changed URL is downloaded on the next run), *Serious* (an outbound hit is malware / C2 and alerts) and
 *Covered by OpenCTI* (skipped while the OpenCTI pull is on, so the same indicator is not matched twice). Every
@@ -357,11 +357,11 @@ IPs, and any artifact a list names says `listed in <feeds>`.
 
 ## 8. Ask AI chat (optional)
 
-The chat runs inside the dashboard (`dashboard/app/chat.py`) with the chat model chosen on **AI pipeline configuration → Models**. It has no terminal, file, memory or settings tools. It can only search and read the web and query netmon through the read-only `netmon_*` tools (from `netmon_mcp.py`, which opens SQLite read-only). Admins can also pick a model per message in the chat header.
+The chat runs inside the dashboard (`dashboard/app/chat.py`) with the chat model chosen on **AI pipeline configuration → Models**. It has no terminal, file, memory or settings tools. It can only search and read the web and query Syn through the read-only `netmon_*` tools (from `netmon_mcp.py`, which opens SQLite read-only). Admins can also pick a model per message in the chat header.
 
 Once a chat model is chosen, the **Ask AI** menu item and the 💬 button on every finding work. Limits are 40 messages per user per hour, 4,000 characters per message and 600,000 tokens per answer. Conversations are kept in `dashboard/state/chat.db` (mode 600).
 
-`netmon_mcp.py` can also be run as a stdio MCP server, so any MCP client can query the same read-only netmon data.
+`netmon_mcp.py` can also be run as a stdio MCP server, so any MCP client can query the same read-only Syn data.
 
 ## 9. Making changes (and publishing your fork)
 
@@ -404,7 +404,7 @@ Once a chat model is chosen, the **Ask AI** menu item and the 💬 button on eve
 | `agent.py`, `llm_providers.py`, `webtools.py` | tool-using conversation loop, AI provider calls, web search / fetch |
 | `scheduler.py`, `host_broker.py`, `systemd/` | job scheduler and loopback host broker, their systemd user units |
 | `store.py` | SQLite state store (WAL): state tables, JSON documents (snapshots, time ranges, job state) and the settings tables |
-| `netmon_mcp.py` | read-only netmon tools for the chat (also a stdio MCP server) |
+| `netmon_mcp.py` | read-only Syn tools for the chat (also a stdio MCP server) |
 | `dashboard/` | HTTPS dashboard (stdlib server, plain JS, Web Push) |
 | `site_cfg.py` | site settings loader (reads the `site` settings from the database) |
 | `setup.sh` | installer (config, folders, secrets file, TLS, dashboard login, systemd units) |

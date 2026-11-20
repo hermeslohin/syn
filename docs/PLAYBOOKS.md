@@ -1,12 +1,12 @@
-# netmon investigation playbooks
+# Syn investigation playbooks
 
-How to use netmon day to day when something looks wrong, or when you want to go looking. Each playbook says where to start, what to pivot to, what normal looks like, how to decide, and what to do afterwards.
+How to use Syn day to day when something looks wrong, or when you want to go looking. Each playbook says where to start, what to pivot to, what normal looks like, how to decide, and what to do afterwards.
 
 This is a companion to the [user guide](USER_GUIDE.md) (what every page shows), [CORRELATION.md](CORRELATION.md) (how events are linked), [RISK_SCORING.md](RISK_SCORING.md) (how host risk is computed) and [ACCESS_CONTROL.md](ACCESS_CONTROL.md) (who can do what). Examples use placeholders (`192.0.2.x`, `host-N`, `example.com`, `alex`); your dashboard shows your real names.
 
 ## Contents
 
-1. [How netmon fits an investigation](#1-how-netmon-fits-an-investigation)
+1. [How Syn fits an investigation](#1-how-syn-fits-an-investigation)
 2. [The common method](#2-the-common-method)
 3. [Troubleshooting a network problem](#3-troubleshooting-a-network-problem)
 4. [Finding DNS tunnelling](#4-finding-dns-tunnelling)
@@ -28,9 +28,9 @@ This is a companion to the [user guide](USER_GUIDE.md) (what every page shows), 
 
 ---
 
-## 1. How netmon fits an investigation
+## 1. How Syn fits an investigation
 
-netmon is a first-line analyst. It collects, baselines and correlates; it does not replace your judgement or the raw logs.
+Syn is a first-line analyst. It collects, baselines and correlates; it does not replace your judgement or the raw logs.
 
 | Layer | What it gives you | Where |
 |---|---|---|
@@ -41,14 +41,14 @@ netmon is a first-line analyst. It collects, baselines and correlates; it does n
 | **AI notes** | Event reviewer copies of earlier verdicts; one-event research on request | ✨ verdict button, 🔬 Send to research |
 | **Raw logs** | The ground truth | 🔎 **Open in Kibana** buttons |
 
-Rule of thumb: netmon tells you **where to look and what changed**; Kibana tells you **exactly what happened**.
+Rule of thumb: Syn tells you **where to look and what changed**; Kibana tells you **exactly what happened**.
 
 Limits to keep in mind:
 
 - Network logs (Zeek) are kept only a couple of days on the sensor. Older time ranges come back mostly empty. The device registry and baselines are the long-term memory.
 - Byte counts are lower bounds. If the sensor drops packets, totals are understated.
 - Baseline rules need about three days of history on a device before they fire.
-- DNS sent over TLS (DoT) or HTTPS (DoH) is encrypted and invisible to the DNS sensor. netmon flags the *use* of it, not the content.
+- DNS sent over TLS (DoT) or HTTPS (DoH) is encrypted and invisible to the DNS sensor. Syn flags the *use* of it, not the content.
 - AI notes can be wrong. Check the evidence before acting on anything important.
 
 ## 2. The common method
@@ -60,7 +60,7 @@ Almost every investigation follows the same loop.
 3. **Open the device.** Devices → Hosts → the host. Read identity, zone, risk drivers, traffic, DNS/TLS habits, detections.
 4. **Compare with normal.** Does the Baseline findings box say this is new? Does the Notes card say what this device is *for*? Check Network → Users if an account is involved.
 5. **Pivot.** Use **Related** to see linked events and their artifacts (files, processes, users, IPs, DNS names). Use 🔎 to open raw events in Kibana. Use the Threat intel indicator lookup for any IP, domain or hash.
-6. **Ask.** 💬 asks the AI about the item using netmon's data. 🔬 **Send to research** on an event gets web-researched context and links (admin-chosen model, costs tokens; use it for events that matter).
+6. **Ask.** 💬 asks the AI about the item using Syn's data. 🔬 **Send to research** on an event gets web-researched context and links (admin-chosen model, costs tokens; use it for events that matter).
 7. **Decide.** Benign, expected, or needs action. Record it.
 8. **Record.** Check the item off, add a 📝 note (people's notes are authoritative for the AI), and clear segmentation flows that are expected. This is what stops the same thing re-alarming and teaches the event reviewer.
 
@@ -72,7 +72,7 @@ Decisions that deserve a note: *why* a thing is normal ("backup job from host-4 
 
 **Symptoms:** "the internet is slow", "the camera drops", "this website won't load", "the game lags".
 
-netmon is not a speed tester, but it shows who is using the pipe, what is failing, and whether something upstream is blocking.
+Syn is not a speed tester, but it shows who is using the pipe, what is failing, and whether something upstream is blocking.
 
 **Steps**
 
@@ -109,7 +109,7 @@ If the dashboard shows nothing for a device you know is active, treat that as it
 
 DNS tunnelling hides data (or a command channel) inside DNS queries, usually as many random-looking subdomains of one domain the attacker controls, often with TXT/NULL queries.
 
-**What netmon does for you**
+**What Syn does for you**
 
 - Every snapshot, the *DNS-tunnel scoring* box looks at the top registered domains by number of distinct subdomains. For each it samples queries and scores randomness (entropy), the share of unique names, and label length. `suspect` needs a high score and 150+ distinct subdomains; `watch` is a lower score with a high unique ratio.
 - The watcher (every event window, default 5 min) raises an alert on a DNS-tunnel burst in the last hour.
@@ -271,13 +271,13 @@ event.dataset: "system.auth" and event.action: "ssh_login" and event.outcome: "s
 
 ## 8. Finding an insider threat
 
-An insider is someone with legitimate access who misuses it: copying data, snooping, bypassing controls, or abusing admin rights. At home or in a small business this is a family member, a contractor, a guest, or a stolen but valid account. netmon has no HR or DLP data. It sees **behaviour that departs from that account's and device's own history**. Always treat the result as a lead for a human conversation, not proof; patterns of normal curiosity look similar to misuse.
+An insider is someone with legitimate access who misuses it: copying data, snooping, bypassing controls, or abusing admin rights. At home or in a small business this is a family member, a contractor, a guest, or a stolen but valid account. Syn has no HR or DLP data. It sees **behaviour that departs from that account's and device's own history**. Always treat the result as a lead for a human conversation, not proof; patterns of normal curiosity look similar to misuse.
 
-**Handle with care.** Check who is permitted to monitor whom, tell the people involved what is logged where required, and keep findings to those who need them. The [audit log](AUDIT_LOG.md) records who viewed what in netmon itself.
+**Handle with care.** Check who is permitted to monitor whom, tell the people involved what is logged where required, and keep findings to those who need them. The [audit log](AUDIT_LOG.md) records who viewed what in Syn itself.
 
 **Indicators and where to see them**
 
-| Indicator | Where in netmon |
+| Indicator | Where in Syn |
 |---|---|
 | Activity at unusual hours | Network → Users → account → hour-of-day strip and active hours |
 | Login to hosts the account never used | Account page → hosts, sources, methods |
@@ -348,7 +348,7 @@ Then sort by `source.bytes` / `client.ip_bytes` (prefer these over total bytes w
 
 ## 11. Command-and-control and beaconing
 
-Malware that phones home on a timer. netmon's **Beacon candidates** box finds source/destination/port pairs with at least ~36 connections whose timing is regular, scored on interval skew, jitter, coverage and size.
+Malware that phones home on a timer. Syn's **Beacon candidates** box finds source/destination/port pairs with at least ~36 connections whose timing is regular, scored on interval skew, jitter, coverage and size.
 
 **Steps**
 
@@ -566,6 +566,6 @@ it here*.
 | Research one event on the web | 📝 → 🔬 Send to research |
 | Did a reported attack reach my network? | AI verdict → 🔬 Researched artifacts (*seen here* / *not seen here*) |
 | Which hosts are riskiest and why | Security → Risk |
-| Who changed what in netmon | More → Audit log (admin) |
+| Who changed what in Syn | More → Audit log (admin) |
 
 **Maintainers:** this file contains no site-specific IPs, hosts or account names, because the repository is public and the sensitive-data gate scans docs. Keep examples to placeholders.

@@ -1,6 +1,6 @@
 # Audit log
 
-netmon records **who did what in the dashboard** and **every conversation between netmon and an AI model**. Entries go to
+Syn records **who did what in the dashboard** and **every conversation between Syn and an AI model**. Entries go to
 Security Onion's Elasticsearch, in **daily indices `logs-netmon.YYYY.MM.DD`** (the UTC day of each entry's
 `@timestamp`; entries spooled while Elasticsearch was down still land in the day they happened). A retention rule can
 therefore delete whole days by index name or age (pattern `logs-netmon.*`). The single index `logs-netmon` used before
@@ -184,7 +184,7 @@ One time, with an Elasticsearch account that can manage index templates and crea
    which should answer `false`.
 
 3. **Give the key to the dashboard**: paste the `encoded` value on **More → Audit log → Change the audit key or index**,
-   press **Test**, then **Save**. It is stored in the netmon database (`integrations` document; the DB file is 0600) under
+   press **Test**, then **Save**. It is stored in the Syn database (`integrations` document; the DB file is 0600) under
    `audit`. Alternatively set `NETMON_AUDIT_ES_KEY` in `dashboard/.env` and run `./deploy.sh`. The Elasticsearch URL
    is the one used for everything else (Configuration → Integrations, or `es_url` in the site settings).
 
@@ -211,7 +211,7 @@ index for that name.
 | `netmon.params` | Request parameters, secrets redacted (`flattened` type). |
 | `gen_ai.system` | Provider: `lmstudio` (the built-in local OpenAI-compatible server; the id is historical), the id of an AI provider added on AI pipeline (`api:<id>`), `review job` or `event research`. |
 | `gen_ai.request.model` | Model name. |
-| `gen_ai.prompt`, `gen_ai.completion` | What netmon sent and what the model answered (full text, searchable). |
+| `gen_ai.prompt`, `gen_ai.completion` | What Syn sent and what the model answered (full text, searchable). |
 | `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` | Tokens when the provider reports them. |
 | `netmon.llm.purpose` | `chat`, `correlation-review`, `review-input`, `review-copy`, `research-input`, `research-result`, `research-hostnotes`. |
 | `netmon.llm.system_prompt` | The instructions given to the model. |
@@ -284,5 +284,5 @@ Since the daily split the dashboard writes to `logs-netmon.YYYY.MM.DD` and (re)i
 lacks it, install `docs/audit_index_template.json` by hand - the status shows `template: not updated`). The daily
 name uses a dot (`logs-netmon.2026.10.31`), not a hyphen: `logs-netmon-<day>` would match Security Onion's `logs-*-*`
 template and become a data stream, which also blocks the template update. With the dot no Security Onion template
-matches, so the daily indices are plain indices with netmon's fixed mapping. Delete old days with a rule on `logs-netmon.*` (index age or the date in the name);
+matches, so the daily indices are plain indices with Syn's fixed mapping. Delete old days with a rule on `logs-netmon.*` (index age or the date in the name);
 the audit key needs `create_doc`, `create_index` and `read` on `logs-netmon.*`.
