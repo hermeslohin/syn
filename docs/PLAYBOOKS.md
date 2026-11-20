@@ -23,7 +23,8 @@ This is a companion to the [user guide](USER_GUIDE.md) (what every page shows), 
 15. [An exposed service or inbound attack](#15-an-exposed-service-or-inbound-attack)
 16. [A device went silent, or the sensor is blind](#16-a-device-went-silent-or-the-sensor-is-blind)
 17. [Tuning out noise without hiding real problems](#17-tuning-out-noise-without-hiding-real-problems)
-18. [Quick reference](#18-quick-reference)
+18. [Using research to enrich an event](#18-using-research-to-enrich-an-event)
+19. [Quick reference](#19-quick-reference)
 
 ---
 
@@ -209,7 +210,7 @@ An IDS alert, a threat-intel hit, a gateway threat, a host finding, or a watcher
 6. **Pull the Related events.** Same attacker IP on several devices? Same device with an IDS alert *and* a new process *and* a login? That chain is the story. The Related popup also lists the correlated artifacts with a benign/expected/suspicious call.
 7. **Look up the indicators.** Threat intel → Indicator lookup for each IP, domain, hash and JA3. A JA3 hit in isolation is weak (stock Windows TLS has a JA3 shared with some malware); escalate only if the destination is *also* on a threat list.
 8. **Check the ATT&CK page.** Which technique does it map to, and has that technique been seen elsewhere in the window? Exposure-only entries are weaknesses, not activity.
-9. **Research.** 💬 for a quick answer; 🔬 **Send to research** for web-researched context (signature background, known false-positive patterns, threat-actor links). The event reviewer copies earlier verdicts for repeat events, so research once and the family is covered.
+9. **Research.** 💬 for a quick answer; 🔬 **Send to research** for web-researched context (signature background, known false-positive patterns, threat-actor links). When the research cites a threat report, check the **🔬 Researched artifacts**: the report's attacker indicators, each checked against 30 days of your logs (playbook [18](#18-using-research-to-enrich-an-event)). The event reviewer copies earlier verdicts for repeat events, so research once and the family is covered.
 10. **Close the loop.** Check off, annotate, and for permanent noise use the 🚫 suppress dialog (hides the finding but keeps correlation) or, to stop the event reviewer looking at a whole class of links, set that event-type pair to **skip** under AI pipeline configuration → Review limits.
 
 **Severity guide**
@@ -465,7 +466,87 @@ Guidelines:
 
 ---
 
-## 18. Quick reference
+## 18. Using research to enrich an event
+
+A threat-intel hit on a legitimate service: the case where research changes the answer most. The scenario: a phone
+(`host-7`) looked up `cdn.analytics-vendor.example`, and the threat-intel feed lists that name. The service is a popular
+analytics CDN. On its own the event says only *"looked up a listed domain"*. That fits two very different stories:
+
+- the vendor was abused, the phone loaded a page that used it, and nothing else happened (**exposure**), or
+- the abuse worked and the phone went on to the attacker's own servers (**compromise**).
+
+Research is how Syn tells them apart. Each layer below adds evidence to the event, and the picture builds up.
+
+**What each layer adds**
+
+| Layer | Question it answers | Where you see it |
+|---|---|---|
+| The event | Which device, which name, how often, which feed listed it | Event row, 👁 N× |
+| Related events | Did other devices or other detections join in at the same time? | **Related** count, correlated artifacts |
+| Web sources | *Why* is a legitimate CDN listed? (a report: the vendor was hijacked to serve a malicious script) | 🌍 **Web sources**, linked `[W1]` `[W2]` in the reason |
+| **Researched artifacts** | Did the attack *reach this network*? Every attacker domain, URL, IP and hash the report names, checked in 30 days of logs | 🔬 **Researched artifacts**, *seen here* / *not seen here* |
+| Your notes | What is this device, who uses it, is this expected? | 📝 host and artifact notes |
+
+**Steps**
+
+1. **Open the verdict.** Tap the AI label on the event (Open events, Alerts or the 🏷 in a Related cell). Read the
+   reason's three parts: *why it fired*, *what it actually was*, *verdict*. Each `[Wn]` opens the report it cites.
+2. **Read the story the sources tell.** For our scenario the reports say the vendor's CDN served a script that loaded
+   `https://loader-example.cc/track.js`, which then pulled payloads from `*.loader-example.icu` and sent card data to
+   `203.0.113.40`. That is the attack chain: legitimate CDN → loader → payload → exfiltration. The event only shows the
+   first link.
+3. **Check every later link: open 🔬 Researched artifacts.** The AI read the reports, pulled out the attacker's
+   indicators, and searched your logs for each one:
+   - **All *not seen here in 30 days*.** The chain stopped at the vendor's CDN. The phone loaded the hijacked service,
+     but no device fetched the loader, resolved the payload domains or talked to the exfiltration IP. Picture:
+     **exposure, no evidence of compromise**. Expect a *suspicious* label with medium confidence and a reason that
+     says the later stages were not observed.
+   - **Any *seen here*.** The chain went further. The row names the device, the count and the last time. Picture:
+     **likely compromise of that device**. Go to step 5.
+   - *Named in N earlier Syn events* means the same infrastructure showed up before: open those events too, as it may
+     be a repeat or a longer campaign.
+4. **Fill the gaps the hunt cannot see.**
+   - The hunt covers 30 days of what your logs keep. An event older than that, or a device outside the sensor's view,
+     cannot be cleared by *not seen*.
+   - Encrypted DNS (DoH/DoT) hides lookups: if the device uses it, *not seen* on a domain is weaker. *Not seen* on an
+     IP still holds.
+   - A report may name only part of the infrastructure. Add any domain you find yourself to the device with 📝, and
+     search it with 🔎.
+   - Want more? **🔬 Send to research** runs a deeper, tool-using investigation of the event: it reads more reports,
+     gets the same indicator check on every page it reads, and can search Elasticsearch around any indicator seen here.
+5. **If something was seen here: work the device.**
+   - Open the device (Devices → Hosts) and look at the window around the *last* time on the indicator: new domains,
+     odd destinations, data volume, beacons (playbook [11](#11-command-and-control-and-beaconing)), exfiltration
+     (playbook [10](#10-data-exfiltration)).
+   - 🔎 on the researched artifact opens the raw logs for it. Save the query as evidence.
+   - Check the device's other events in the same hour through **Related**.
+   - Contain first (block the indicator at the gateway or DNS filter, isolate the device), then clean up: for a phone,
+     clear the browser data, update the OS and browser, and change passwords used on it since the first time seen.
+6. **Record what you learned.**
+   - Block the attacker indicators on your DNS filter or gateway even when nothing was seen here: it costs nothing
+     and stops a later visit.
+   - Add a 📝 note on the vendor domain (e.g. *"hijacked in campaign X; attacker indicators hunted 30 days, none seen
+     here"*). The event reviewer reads it on every later hit on that domain, so repeats are labelled the same way.
+   - Check the event off only once the picture is clear. If the AI later re-reviews the event and finds something
+     seen here, it reopens.
+
+**Reading the result**
+
+| Researched artifacts | Picture | Action |
+|---|---|---|
+| All *not seen here*, logs cover the period | Exposure to an abused service, attack did not reach you | Block indicators, note the vendor domain, check off |
+| All *not seen here*, but the event is older than 30 days or the device uses encrypted DNS | Unknown: the hunt could not see | Send to research, check the device directly |
+| Loader or payload domain *seen here* | The malicious script ran on that device | Investigate the device now, contain |
+| Exfiltration IP *seen here* | Data may have left | Incident: contain, preserve evidence, reset credentials |
+| *log search failed* | The hunt did not run (Elasticsearch or the broker was down) | Re-review later, or search the indicators yourself with 🔎 |
+
+The same method works for any event whose web research turns up a threat report: a signature tied to a campaign, a
+listed IP, a known-bad hash. Research says *what the attacker does*; the researched artifacts say *whether they did
+it here*.
+
+---
+
+## 19. Quick reference
 
 | I want to… | Go to |
 |---|---|
@@ -483,6 +564,7 @@ Guidelines:
 | What else is connected to this | **Related** count |
 | What the AI thinks | ✨ verdict, 💬 Ask AI |
 | Research one event on the web | 📝 → 🔬 Send to research |
+| Did a reported attack reach my network? | AI verdict → 🔬 Researched artifacts (*seen here* / *not seen here*) |
 | Which hosts are riskiest and why | Security → Risk |
 | Who changed what in netmon | More → Audit log (admin) |
 

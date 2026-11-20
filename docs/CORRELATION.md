@@ -18,6 +18,10 @@ next one and AI cost and human attention stay low.
 4. **Event reviewer.** Copies the verdict from an earlier matching note, or leaves the event queued for research (section 6).
 5. **Researcher (optional).** Runs only when a person clicks *Send to research* (section 5).
 
+With web search on, stages 3 and 5 also **enrich** the event: the attacker indicators named in the threat reports the AI
+reads are hunted through this network's own logs and kept on the event as *researched artifacts*
+([Indicator hunt](#indicator-hunt-from-a-cited-report-to-researched-artifacts)).
+
 ### One event, step by step
 
 The two images below follow one real event through stages 3 and 4 (addresses and the host name are changed; scores,
@@ -631,22 +635,100 @@ event review and classification.
 4. Every look-up is stored in `corr_llm.db` `web_queries` (time, event, model, search or page, why, result URLs,
    seconds, error) and audited as `aireview.websearch`; `review_events.web` / `.cited` count look-ups and cited pages
    per event review; `event_sources` keeps the cited pages per classified event.
-5. **Indicator hunt (research -> deeper analysis).** After the look-ups, the threat reports the review found are read in
-   full: pages the reviewer read, plus up to 2 search results that read like a threat report (`IOC_READS`; title or
-   snippet about malware, an attack, a hijack, IOCs ...). `iocs.py` pulls the attacker indicators out of them - domains,
-   URLs, public IPs, file hashes, re-fanged from `1688360[.]cc` / `hxxps://` - skipping link and image targets, file
-   names (`track.js`), well-known platforms, the publisher's own site, the event's own indicators and private addresses.
-   Each indicator is then hunted (host broker `POST /iochunt` -> `es_context.hunt`, at most 120 per hour, cached 6 h per
-   indicator in `ioc_hunt`): one read-only aggregation over the Zeek (DNS, TLS, HTTP, connections), Suricata and endpoint
-   logs of the **last 30 days** (sub-names of an attacker's domain count via `dns.highest_registered_domain`), giving
-   hits, first / last time, the busiest local devices and log types; Syn's own stored events that name it are counted
-   too. The result goes to the model as an `<ioc_hunt>` block (seen here = a device really contacted that
-   infrastructure; not seen = the report's later stages did not happen from this network) and is kept on the event
-   (`corr_llm.db` `event_iocs`; group members get the anchor's). The pop-ups, Open events window and Alerts show them as
-   **🔬 Researched artifacts**, each tagged *researched artifact*, with the report it came from (`[W4]`), *seen here N×*
-   (devices, last time) or *not seen here in 30 days*, and the usual notes / search buttons. **Send to research** does
-   the same for every threat report the research model reads (`web_fetch` returns `indicators` with `seen_here_30d`), and
-   stores them on the researched event.
+5. **Indicator hunt.** The threat reports the review found are then mined for the attacker's own indicators, which are
+   searched for in this network's logs: see [Indicator hunt: from a cited report to researched artifacts](#indicator-hunt-from-a-cited-report-to-researched-artifacts).
+
+#### Indicator hunt: from a cited report to researched artifacts
+
+A web look-up alone answers *"what is this domain?"*. A threat report usually answers much more: it names the
+attacker's own infrastructure (loader domains, a `track.js` URL, C2 IPs, payload hashes). Those are the questions
+that decide a home event: **did any device here ever reach the attacker, or only the abused legitimate service?**
+The indicator hunt turns each cited report into that check, so the verdict rests on this network's own evidence
+instead of the report's headline.
+
+```
+web look-ups ([W1] [W2] ...) -> read the threat reports -> extract indicators -> hunt each in 30 days of logs
+   -> <ioc_hunt> block to the event reviewer -> label + reason -> researched artifacts on the event
+```
+
+**1. Which pages are read.** Every page the reviewer read during its look-ups, plus up to **2** search results
+(`IOC_READS`) whose title or snippet reads like a threat report (malware, attack, hijack, compromise, IOC, C2,
+skimming, supply chain ...). Vendor documentation and reputation pages are not read. Reads go through the same web
+backend and the shared **netmon web cache** (key `i:<url>`, up to 20,000 characters), are logged in `web_queries`
+(*why: read the threat report for its indicators*) and audited like any other look-up.
+
+**2. What is extracted** (`iocs.py`, at most 20 per review):
+
+| Kind | Example in a report | Kept as |
+|---|---|---|
+| Domain | `` `loader-example.cc` ``, `ldr1[.]example-bad.icu` | `dns` |
+| URL | `https://loader-example.cc/track.js`, `loader-example.cc/track.js` (no scheme) | `url` (and its host as `dns`) |
+| Public IP | `203.0.113.40` | `ip` |
+| File hash | MD5, SHA-1, SHA-256 | `hash` |
+
+Defanged forms (`[.]`, `(.)`, `[dot]`, `hxxps://`, and markdown-escaped `\[.\]`) are re-fanged first. An indicator
+written as code, in a table or defanged is *strong* and always kept; a plain-prose domain must appear at least twice.
+**Never extracted:** link and image targets (navigation, the publisher's CDN), file names that look like domains
+(`track.js`, `card.php`), names whose last label is not a real top-level domain (`iocs_tlds.txt`, the IANA list -
+so `vendor.console` is ignored), well-known platforms (Google, Microsoft, GitHub, Cloudflare, AWS, social networks
+...), the publisher's own site, the event's own domains and IPs, the pages already cited, private / non-routable
+addresses, and anything a sentence of the report itself clears (*"... resolves to 203.0.113.7. These are delivery
+addresses, not malicious indicators"*).
+
+**3. The hunt** (host broker `POST /iochunt` -> `es_context.hunt`, at most 120 per hour; each indicator's result is
+cached 6 h in `corr_llm.db` `ioc_hunt`, so a group of events citing one report is hunted once). One read-only
+aggregation over the **last 30 days** of:
+
+| Indicator | Fields searched |
+|---|---|
+| Domain / URL host | `dns.query.name`, `ssl.server_name`, `tls.client.server_name`, `http.virtual_host`, `url.domain`, `destination.domain`; a registered domain (`loader-example.cc`) also matches every sub-name through `dns.highest_registered_domain` |
+| IP | `destination.ip`, `source.ip` |
+| Hash | `hash.*`, `file.hash.*`, `process.hash.*` (md5 / sha1 / sha256) |
+
+over Zeek (DNS, TLS, HTTP, connections), Suricata and endpoint events. Per indicator it returns the hit count, first
+and last time, the 5 busiest local devices, the log types and the DNS names seen. The DSL is built from the validated
+values only (no scripts, no free text from the page). Syn's own stored events (open or checked off) that name the
+indicator are counted too.
+
+**4. What the event reviewer gets.** One block after the web results, plus a rule (`IOC_RULE`) to use it:
+
+```
+<ioc_hunt indicators="5" seen_here="1">
+- dns loader-example.cc (from [W2]): not seen in this network's logs in the last 30 days; no earlier Syn event names it
+- url https://loader-example.cc/track.js (from [W2]): not seen in this network's logs in the last 30 days; ...
+- ip 203.0.113.40 (from [W2]): SEEN HERE 3x in the last 30 days, first 2026-11-02T10:14Z, last 2026-11-02T10:16Z;
+  devices: 192.0.2.30 (3x); logs: zeek.conn; no earlier Syn event names it
+- ...
+</ioc_hunt>
+```
+
+*Seen here* means a device really contacted the attacker's infrastructure: the reviewer names the device, the times
+and the report. *Not seen* means the report's later stages (loader download, exfiltration) did not happen from this
+network in that window, and the reason says so. If the broker or Elasticsearch fails, the indicators are still listed,
+marked *log search failed*, and the review goes on.
+
+**5. Stored and shown.** `corr_llm.db` `event_iocs` (event, kind, value, source page and its `[Wn]` id, hunt result,
+Syn-event matches, model, time). A correlated group's members get the anchor's set. A re-review that runs no new hunt
+(look-up memo, no reports) keeps what is stored. `classes()` returns them as `iocs`, and the AI verdict pop-up, the
+Open events window and Alerts show them as **🔬 Researched artifacts**: each row tagged *researched artifact*, with its
+kind and value, *seen here N× in 30 days* (red; devices and last time) or *not seen here in 30 days* (green), how many
+earlier Syn events name it, the report it came from (`[W2]`, linked), the 📝 notes and 🔎 search buttons, and the
+model flare. The list opens by itself when anything was seen here.
+
+**Event research (Send to research)** does the same on every page its model reads: `web_fetch` returns the page with
+an `indicators` list (`seen_here_30d`, devices, first / last, logs) so the researcher can `es_search` the ones seen
+here, and the run stores them on the researched event (`event_iocs`, model marked *(research)*).
+
+| Limit | Value | Where |
+|---|---|---|
+| Extra threat reports read per review | 2 | `IOC_READS` (`corr_llm.py`) |
+| Indicators per review | 20 | `MAX_IOCS` (`iocs.py`) |
+| Hunt window | 30 days | `HUNT_DAYS` (`es_context.py`) |
+| Hunt result reuse | 6 h | `IOC_HUNT_TTL` (`corr_llm.py`) |
+| Hunts per hour | 120 | `IOC_RATE` (`host_broker.py`) |
+
+The hunt runs only when web search is on for the event reviewer (it needs a report to read) and Elasticsearch is
+configured. Requirement **WEB-09**; tests `tests/unit/test_ioc_pivot.py`.
 
 #### Re-reviews and the web cache
 
@@ -1091,7 +1173,8 @@ reason (up to 2,400 characters, `REASON_MAX`; a group member's reason starts wit
 (N events, reviewed together on "…").* and a person's verdict with *Person's verdict applied (…)*, each on its own line
 above the write-up) and `owner` (how a person's verdict was applied or why it was held). Nothing is stored
 when the call fails; it is retried at most 3 times per set of link decisions. Also `event_sources` (the cited `[Wn]`
-pages), `pair_artifacts` per related link (artifacts + 🔭 Kibana queries + 🌍 web sources), and the notes derived from the
+pages), `event_iocs` (the researched artifacts from the indicator hunt, with what the hunt found), `pair_artifacts` per
+related link (artifacts + 🔭 Kibana queries + 🌍 web sources), and the notes derived from the
 artifacts: expected-behaviour host notes (confidence ≥ 0.8), internet notes on external IPs and DNS notes on names.
 The link's own text stays the decision model's verdict.
 
@@ -1115,7 +1198,8 @@ up to 8 `related` candidates (label, script *why*, the current verdict and its t
 
 **Tools.** `es_search` (query DSL, `for_ids` ties a search to the notes it supports), `read_data` (snapshot,
 analysis, known-benign, policy), `device_lookup`, `notes_kb`, and with web access `web_search` (capped at *Searches
-per event* × items), `web_fetch` and `cite` (only fetched pages can be cited). Up to 40 turns, 8,000 output tokens
+per event* × items), `web_fetch` (a threat report also returns its `indicators` with what a 30-day hunt of this
+network's logs found for each) and `cite` (only fetched pages can be cited). Up to 40 turns, 8,000 output tokens
 per turn, within the cost and token caps (section 5).
 
 **Writes.** Only through `submit_notes`, which checks ids, verdicts, priorities and links before `enrich.sh put`

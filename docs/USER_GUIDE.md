@@ -266,7 +266,8 @@ An event with a note shows a **✨ verdict** button next to its Related count. C
 - the verdict and priority;
 - a short summary;
 - what was checked and found (hosts, ports and times);
-- links to the sources the AI actually read.
+- links to the sources the AI actually read;
+- the **🔬 researched artifacts**: the attacker indicators from those sources, each checked against your logs (see below).
 
 Notes carry over to the same finding in later snapshots, and are refreshed when the evidence changes. *Written for an earlier run* means the numbers may have moved since. The **AI pipeline monitoring** page shows how many events have notes.
 
@@ -277,6 +278,45 @@ AI notes can be wrong. Treat them as a well-informed second opinion, and check t
 **Notes stay with the item.** A research note is stored on its own and never expires. If a finding has dropped out of the newest snapshots (for example because it was checked off), its ✨ button still appears: the page fetches the saved note by the finding's text. Only an admin using *Clear notes* on the AI pipeline pages removes notes.
 
 **Times seen (👁).** Next to the Related count each event shows **👁 N×**: the number of snapshots it has appeared in (for an alert, how many times an alert with the same text was raised). Counting started when this feature was added. Hover for the first and last time it was seen.
+
+### Researched artifacts
+
+When the AI looks an event up on the web and finds a **threat report** (a write-up of an attack or campaign), it does
+not stop at citing it. It reads the report, picks out the **attacker's own indicators** the report names (the
+malicious domains, script URLs, server IPs and file hashes), and searches the **last 30 days of your network's logs**
+for every one of them. It also checks whether any earlier Syn event named them. What it finds goes into its verdict
+and stays on the event as **🔬 Researched artifacts**.
+
+Where to see them: the AI verdict pop-up (tap the label), the event's window on **Open events**, and the review panel
+on **Alerts**. Each row shows:
+
+| Part | Meaning |
+|---|---|
+| **🔬 researched artifact** tag | Found by the AI in a report it read for this event, not in the event itself |
+| Kind and value | *dns* (domain), *url*, *ip* or *hash*, e.g. `loader-example.cc` or `https://loader-example.cc/track.js` |
+| **seen here N× in 30 days** (red) | A device on your network did reach it. The devices, how many times and the last time are next to it; hover for first / last and the log types |
+| **not seen here in 30 days** (green) | No DNS lookup, TLS or web connection, IDS alert or endpoint record of it |
+| *named in N earlier Syn events* | Syn has seen this indicator in an event before |
+| *from [W2]* | The report it came from. Click to open it |
+| 📝 / 🔎 | Add your own note on it (the AI reads it next time), or search for it in Kibana |
+
+The list header sums it up (*2 seen in this network* or *none seen in this network*) and opens by itself when
+anything was seen.
+
+**How to read it.** The researched artifacts answer the question the report's headline cannot: *did the attack reach
+you?* Suppose a phone looked up a legitimate analytics service, and a report says that service was hijacked to serve
+a malicious script from `loader-example.cc`:
+
+- **Every indicator *not seen here*.** The phone loaded the hijacked service, but the attacker's loader and servers
+  never answered it from your network in 30 days. Exposure, not compromise. The AI says so in its reason.
+- **An indicator *seen here*.** A device did reach the attacker's infrastructure. Treat it as an incident: open that
+  device, look at what happened around the listed times, and use 🔎 to pull the raw logs (playbook
+  [Using research to enrich an event](PLAYBOOKS.md#18-using-research-to-enrich-an-event)).
+
+This happens in the automatic review when web search is on for the event reviewer (AI pipeline configuration → Event
+reviewer look-ups), and in **🔬 Send to research** for every report the researcher reads. The 30-day window is limited
+by how long your logs are kept. Indicators the report itself calls harmless, the vendor's own domains and big
+platforms are left out. Details: [CORRELATION.md](CORRELATION.md#indicator-hunt-from-a-cited-report-to-researched-artifacts).
 
 ### Managing notes
 
@@ -882,5 +922,6 @@ The latest review job run failed. The error is shown in the box. The next schedu
 | **JA3 / JA4** | Fingerprints of the software that opened a TLS (HTTPS) connection. |
 | **ATT&CK** | MITRE's catalogue of attacker techniques. |
 | **Correlation** | Linking events that are about the same activity. |
+| **Researched artifact** | An attacker indicator (domain, URL, IP or file hash) the AI found in a threat report it read for an event, then searched for in the last 30 days of your network's logs. Tagged 🔬 *researched artifact* and marked *seen here N×* (with the devices) or *not seen here in 30 days*. See [Researched artifacts](#researched-artifacts). |
 | **Research note** | The AI's per-event research, written when someone clicks Send to research: verdict, summary, evidence and sources. |
 | **Capture loss** | Traffic the sensor couldn't record. High loss means parts of the network are invisible. |
